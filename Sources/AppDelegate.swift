@@ -77,9 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = image
         }
         statusItem.menu = statusMenu
+        statusItem.isVisible = controller.showsMenuBarIcon
     }
 
     private func rebuildMenu() {
+        statusItem?.isVisible = controller.showsMenuBarIcon
         statusMenu.removeAllItems()
 
         let stat = store.todayStat

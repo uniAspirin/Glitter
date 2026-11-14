@@ -21,7 +21,7 @@ final class PanelState: ObservableObject {
     var onSelectDay: (() -> Void)?
     var onSelectMonth: (() -> Void)?
     var onToggleDay: (() -> Void)?
-    var onToggleMode: (() -> Void)?
+    var onTogglePinned: (() -> Void)?
     var onDragChanged: (() -> Void)?
     var onDragEnded: (() -> Void)?
 
@@ -295,36 +295,13 @@ private struct PanelMenu: View {
     @ObservedObject var state: PanelState
     var body: some View {
         Group {
-            if store.isDemo {
-                Menu("Demo Data") {
-                    Button("Sample Day") { store.loadDemoData() }
-                    Button("Long Day") { store.loadDemoData(taskCount: 12, completedCount: 3) }
-                    Button("Very Long Reminder") { store.loadLongTitleDemoData() }
-                    Button("Overdue Day") { store.loadOverdueDemoData() }
-                    Button("Overdue Cleared") { store.loadOverdueDemoData(completed: true) }
-                    Button("Save Error") { store.loadSaveFailureDemoData() }
-                    Button("Slow Save") { store.loadSlowSaveDemoData() }
-                    Button("Saved, Awaiting Refresh") { store.loadUnconfirmedSaveDemoData() }
-                    Button("Empty Day") { store.loadDemoData(taskCount: 0, completedCount: 0) }
-                    Button("Empty List") { store.loadEmptyListDemoData() }
-                    Button("Undated Reminders") { store.loadUndatedDemoData() }
-                    Button("Future Reminders") { store.loadFutureDemoData() }
-                    Button("All Complete") { store.loadDemoData(taskCount: 5, completedCount: 5) }
-                    Menu("Connection States") {
-                        Button("Loading") { store.loadStatusDemoData(.loading) }
-                        Button("Access Off") { store.loadStatusDemoData(.denied) }
-                        Button("No List Selected") { store.loadStatusDemoData(.unselected) }
-                        Button("List Unavailable") { store.loadStatusDemoData(.unavailable) }
-                        Button("Load Failed") { store.loadStatusDemoData(.failed) }
-                        Button("Refresh Failed · Keep Content") { store.loadStaleDemoData() }
-                    }
+            Button("Settings") { state.onOpenSettings?() }
+            Toggle("Keep Expand", isOn: Binding(
+                get: { state.pinned },
+                set: { pinned in
+                    if pinned != state.pinned { state.onTogglePinned?() }
                 }
-                Divider()
-            }
-            Button("Settings…") { state.onOpenSettings?() }
-            Button("Refresh") { store.retryLoad() }
-                .disabled(store.isRefreshing || store.isMutating)
-            Button(store.expandedMode == "today" ? "Show Month" : "Show Day") { state.onToggleMode?() }
+            ))
             if store.selectedCalendars.count > 1 {
                 Menu("Open Tracked List") {
                     ForEach(store.selectedCalendars, id: \.calendarIdentifier) { list in
@@ -336,7 +313,6 @@ private struct PanelMenu: View {
                 Button("Open Tracked List") { store.openTrackedList() }
                     .disabled(store.isDemo || !store.canOpenTrackedList)
             }
-            Divider()
             Button("Quit Glitter") { NSApp.terminate(nil) }
 
         }

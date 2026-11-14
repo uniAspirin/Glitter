@@ -71,6 +71,7 @@ final class NotchPanelController: ObservableObject {
     private enum Keys {
         static let display = "SandNotch.displayID"
         static let offset = "SandNotch.horizontalOffset"
+        static let menuBarIcon = "Glitter.showMenuBarIcon"
     }
 
     private(set) var panel: NotchPanel
@@ -82,6 +83,7 @@ final class NotchPanelController: ObservableObject {
     private var scrollLocalMonitor: Any?
     @Published private(set) var selectedDisplayID: CGDirectDisplayID?
     @Published private(set) var screens: [NSScreen]
+    @Published private(set) var showsMenuBarIcon: Bool
 
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
@@ -126,6 +128,7 @@ final class NotchPanelController: ObservableObject {
     init(store: TaskStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
+        showsMenuBarIcon = defaults.object(forKey: Keys.menuBarIcon) as? Bool ?? true
         let availableScreens = NSScreen.screens
         screens = availableScreens
         let savedDisplayID = defaults.object(forKey: Keys.display) == nil
@@ -202,7 +205,7 @@ final class NotchPanelController: ObservableObject {
             guard let self, self.animationDisplayLink === link else { return }
             self.advanceAnimation(at: link.targetTimestamp)
         }
-        state.onToggleMode = { [weak self] in self?.modeButtonClicked() }
+        state.onTogglePinned = { [weak self] in self?.togglePinned() }
         state.onSelectDay = { [weak self] in self?.selectMode("today") }
         state.onSelectMonth = { [weak self] in self?.selectMode("month") }
         state.onToggleDay = { [weak self] in
@@ -461,8 +464,15 @@ final class NotchPanelController: ObservableObject {
         if state.pinned {
             expand()
         } else {
-            collapse()
+            pollCursor()
         }
+        onDataChanged?()
+    }
+
+    func setMenuBarIconVisible(_ visible: Bool) {
+        guard visible != showsMenuBarIcon else { return }
+        showsMenuBarIcon = visible
+        defaults.set(visible as Any, forKey: Keys.menuBarIcon)
         onDataChanged?()
     }
 
@@ -510,11 +520,6 @@ final class NotchPanelController: ObservableObject {
         guard state.expanded, acceptsClick else { return }
         cancelScheduledCollapse()
         store.setExpandedMode(mode)
-    }
-
-    private func modeButtonClicked() {
-        guard acceptsClick else { return }
-        store.setExpandedMode(store.expandedMode == "today" ? "month" : "today")
     }
 
     private func dragChanged() {

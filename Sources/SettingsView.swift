@@ -69,6 +69,15 @@ struct SettingsView: View {
             Button("Center Panel") { controller.resetOffset() }
                 .padding(.top, 12)
 
+            Toggle("Show Menu Bar Icon", isOn: Binding(
+                get: { controller.showsMenuBarIcon },
+                set: { controller.setMenuBarIconVisible($0) }
+            ))
+            .font(.system(size: 13))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.top, 12)
+
             Divider().padding(.vertical, 18)
             title("Startup")
             Toggle("Launch at Login", isOn: Binding(
@@ -96,7 +105,7 @@ struct SettingsView: View {
 
         }
         .padding(22)
-        .frame(width: 380, height: 640)
+        .frame(width: 380, height: 680)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { loginItems.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -183,7 +192,7 @@ final class SettingsWindowController {
         )
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 680),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

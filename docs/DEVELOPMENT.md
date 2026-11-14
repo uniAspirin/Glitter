@@ -1,6 +1,6 @@
 # Developing Glitter
 
-Glitter 1.0 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
+Glitter 1.1 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
 ## Build and run
 
@@ -18,7 +18,9 @@ Use the isolated Demo when working on layout or completion behavior.
 open build/Glitter-Demo.app
 ```
 
-Demo uses fictional tasks and in-memory settings. It does not access real reminders or register a login item. Its context menu contains sample data and recovery scenarios.
+Demo uses fictional tasks and in-memory settings. It does not access real reminders or register a login item. The checks below cover additional sample data and recovery scenarios.
+
+Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
 
 ## Checks
 
@@ -62,7 +64,7 @@ Window transitions use native display-link timing and cached view snapshots. The
 ./package.sh
 ```
 
-This rebuilds the production app and creates `dist/Glitter-1.0.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
+This rebuilds the production app and creates `dist/Glitter-1.1.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
 
 The default build uses ad-hoc signing. A successful local signature check does not imply Apple notarization or Gatekeeper acceptance on another Mac. Gatekeeper may block an unnotarized download.
 

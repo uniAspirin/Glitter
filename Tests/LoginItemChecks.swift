@@ -46,7 +46,7 @@ func checkLoginItems() async {
     let controller = NotchPanelController(store: store, defaults: MemoryDefaults())
     func captureSettings(_ name: String, _ loginItems: LoginItemManager) {
         let host = NSHostingView(rootView: SettingsView(store: store, controller: controller, loginItems: loginItems, onRequestAccess: {}))
-        host.frame = NSRect(x: 0, y: 0, width: 380, height: 640)
+        host.frame = NSRect(x: 0, y: 0, width: 380, height: 680)
         host.layoutSubtreeIfNeeded()
         let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: bitmap)
