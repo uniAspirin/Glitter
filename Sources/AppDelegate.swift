@@ -116,6 +116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.target = self
         statusMenu.addItem(settings)
 
+        let todayOnHover = NSMenuItem(title: "Always Show Today on Hover", action: #selector(toggleTodayOnHover), keyEquivalent: "")
+        todayOnHover.target = self
+        todayOnHover.state = controller.alwaysShowsTodayOnHover ? .on : .off
+        statusMenu.addItem(todayOnHover)
+
         let displayItem = NSMenuItem(title: "Display", action: nil, keyEquivalent: "")
         let displayMenu = NSMenu()
         let currentScreen = controller.currentScreen
@@ -186,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePinned() {
         controller.togglePinned()
         rebuildMenu()
+    }
+
+    @objc private func toggleTodayOnHover() {
+        controller.setAlwaysShowTodayOnHover(!controller.alwaysShowsTodayOnHover)
     }
 
     @objc private func openReminders() {

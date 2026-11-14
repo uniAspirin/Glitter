@@ -20,7 +20,7 @@ open build/Glitter-Demo.app
 
 Demo uses fictional tasks and in-memory settings. It does not access real reminders or register a login item. The checks below cover additional sample data and recovery scenarios.
 
-Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
+Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. Always Show Today on Hover is a switch in Settings and a checked menu-bar menu item. It defaults to off, persists in regular use and shares the same controller preference across both controls. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
 
 ## Checks
 
@@ -54,7 +54,7 @@ Day includes reminders due today and overdue reminders that remain unfinished or
 
 Month is recalculated from current reminder records, without daily history snapshots. Completing overdue work credits today and leaves the missed day incomplete. Source edits can change historical results. Eight gold levels show positive completion, with the brightest gold and glow reserved for full completion. Zero completion, no tasks and future dates use `#141414`.
 
-The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Day/Month selection and Day disclosure last for the current run.
+The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Hover entry selects Today on the left half or Month on the right half, with the exact midpoint assigned to the right. The choice is made only on entry. The Today preference overrides both halves. A completely collapsed panel prepares the selected page before expansion. Re-entry during collapse retargets the existing animation from its current presentation frame. Manual view switches remain available while expanded. Day disclosure lasts for the current run.
 
 Window transitions use native display-link timing and cached view snapshots. The live task views resume after the transition. Reduce Motion is respected.
 

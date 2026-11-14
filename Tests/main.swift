@@ -4,6 +4,7 @@ MainActor.assumeIsolated { TaskStore.checkTodayModel(); NotchPanelController.che
 
 Task { @MainActor in
     NotchPanelController.checkMenuBarVisibility()
+    NotchPanelController.checkHoverEntry()
     await TaskStore.checkTaskEditing()
     await TaskStore.checkMultipleLists()
     await TaskStore.checkCraftStates()

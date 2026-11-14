@@ -72,6 +72,7 @@ final class NotchPanelController: ObservableObject {
         static let display = "SandNotch.displayID"
         static let offset = "SandNotch.horizontalOffset"
         static let menuBarIcon = "Glitter.showMenuBarIcon"
+        static let alwaysShowToday = "Glitter.alwaysShowTodayOnHover"
     }
 
     private(set) var panel: NotchPanel
@@ -84,6 +85,7 @@ final class NotchPanelController: ObservableObject {
     @Published private(set) var selectedDisplayID: CGDirectDisplayID?
     @Published private(set) var screens: [NSScreen]
     @Published private(set) var showsMenuBarIcon: Bool
+    @Published private(set) var alwaysShowsTodayOnHover: Bool
 
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
@@ -129,6 +131,7 @@ final class NotchPanelController: ObservableObject {
         self.store = store
         self.defaults = defaults
         showsMenuBarIcon = defaults.object(forKey: Keys.menuBarIcon) as? Bool ?? true
+        alwaysShowsTodayOnHover = defaults.object(forKey: Keys.alwaysShowToday) as? Bool ?? false
         let availableScreens = NSScreen.screens
         screens = availableScreens
         let savedDisplayID = defaults.object(forKey: Keys.display) == nil
@@ -240,12 +243,25 @@ final class NotchPanelController: ObservableObject {
 
     // MARK: - 展开 / 收起
 
-    func expand() {
+    func expand(mode: String? = nil) {
         guard !state.expanded else { return }
         cancelScheduledCollapse()
         state.expanded = true
+        if let mode { store.setExpandedMode(mode) }
         updateWindowFrame(expanded: true, animated: true)
         show()
+    }
+
+    private func expandForHover(at point: NSPoint) {
+        let mode = alwaysShowsTodayOnHover || point.x < interactionFrame.midX ? "today" : "month"
+        if motion == nil {
+            // Select the hidden page before revealing it, so another page never flashes first.
+            store.setExpandedMode(mode)
+            expand()
+        } else {
+            // Retarget a closing panel from its current frame and velocity.
+            expand(mode: mode)
+        }
     }
 
     func collapse() {
@@ -476,6 +492,13 @@ final class NotchPanelController: ObservableObject {
         onDataChanged?()
     }
 
+    func setAlwaysShowTodayOnHover(_ enabled: Bool) {
+        guard enabled != alwaysShowsTodayOnHover else { return }
+        alwaysShowsTodayOnHover = enabled
+        defaults.set(enabled as Any, forKey: Keys.alwaysShowToday)
+        onDataChanged?()
+    }
+
     func forceExpandedForDebug() {
         state.pinned = true
         expand()
@@ -575,7 +598,7 @@ final class NotchPanelController: ObservableObject {
             if state.expanded && !state.pinned {
                 if visibleFrame.insetBy(dx: -2, dy: -2).contains(point) { cancelScheduledCollapse() }
                 else { scheduleCollapse() }
-            } else if !state.expanded && visibleFrame.contains(point) { expand() }
+            } else if !state.expanded && visibleFrame.contains(point) { expandForHover(at: point) }
             return
         }
         let hovered = state.expanded && store.hasStatistics && g.headerInteractionRect(in: visibleFrame).contains(point)
@@ -598,7 +621,7 @@ final class NotchPanelController: ObservableObject {
                 scheduleCollapse()
             }
         } else if (state.expansionProgress > 0 ? visibleFrame : g.hotZone).contains(point) {
-            expand()
+            expandForHover(at: point)
         }
     }
 

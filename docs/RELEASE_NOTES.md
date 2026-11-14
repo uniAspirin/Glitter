@@ -2,6 +2,9 @@
 
 ## English
 
+- Hover into the left half to open Today, or the right half to open Month. The view is selected once on entry.
+- Always Show Today on Hover is available as a switch in Settings and a checked item in the menu bar menu. It defaults to off and is remembered across launches.
+- Settings uses a centered window title and consistent rows with labels on the left and switches on the right.
 - Choose whether to show the menu bar icon in Settings. The icon is shown by default, and your choice is remembered across launches.
 - The panel context menu now contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Settings remains available when the menu bar icon is hidden.
 - Keep Expand displays a checkmark when enabled. Turning it off resumes hover behavior.
@@ -13,6 +16,9 @@ The app uses ad-hoc signing and has not been notarized by Apple. macOS may requi
 
 ## 简体中文
 
+- 从折叠态左半边进入显示 Today，右半边进入显示 Month，仅在进入时判断一次。
+- 设置中新增 Always Show Today on Hover 开关，菜单栏菜单中也可勾选，开启后每次悬停展开都进入 Today。默认关闭，重新启动后保留选择。
+- 设置窗口标题居中，各设置项独占一行，文字在左、开关在右。
 - 设置中新增 Show Menu Bar Icon 开关。图标默认显示，选择会在重新启动后保留。
 - 刘海右键菜单精简为 Settings、Keep Expand、Open Tracked List 和 Quit Glitter。隐藏菜单栏图标后，仍可从刘海右键打开设置。
 - Keep Expand 启用时显示勾选，关闭后恢复悬停展开与离开收起。

@@ -46,47 +46,59 @@ struct SettingsView: View {
             Divider().padding(.vertical, 18)
 
             title("Display")
-            subtitle("The panel keeps clear of the camera.")
-            if screens.count > 1 {
-                Picker("", selection: Binding(
-                    get: { controller.currentScreen?.displayID ?? 0 },
-                    set: { controller.selectDisplay($0) }
-                )) {
-                    ForEach(screens, id: \.self) { screen in
-                        Text(label(for: screen)).tag(screen.displayID ?? 0)
+            HStack {
+                Text("Screen").font(.system(size: 13))
+                Spacer(minLength: 12)
+                if screens.count > 1 {
+                    Picker("Screen", selection: Binding(
+                        get: { controller.currentScreen?.displayID ?? 0 },
+                        set: { controller.selectDisplay($0) }
+                    )) {
+                        ForEach(screens, id: \.self) { screen in
+                            Text(label(for: screen)).tag(screen.displayID ?? 0)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .font(.system(size: 14))
+                    .controlSize(.regular)
+                    .frame(maxWidth: 220, alignment: .trailing)
+                } else {
+                    Text(label(for: screens.first))
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .padding(.top, 8)
-            } else {
-                Text(label(for: screens.first))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 6)
             }
+            .padding(.top, 12)
 
-            Button("Center Panel") { controller.resetOffset() }
-                .padding(.top, 12)
+            HStack {
+                Text("Panel Position").font(.system(size: 13))
+                Spacer()
+                Button("Center") { controller.resetOffset() }
+                    .font(.system(size: 14))
+                    .controlSize(.regular)
+            }
+            .padding(.top, 12)
 
-            Toggle("Show Menu Bar Icon", isOn: Binding(
+            switchRow("Show Menu Bar Icon", isOn: Binding(
                 get: { controller.showsMenuBarIcon },
                 set: { controller.setMenuBarIconVisible($0) }
             ))
-            .font(.system(size: 13))
-            .toggleStyle(.switch)
-            .controlSize(.small)
+            .padding(.top, 12)
+
+            switchRow("Always Show Today on Hover", isOn: Binding(
+                get: { controller.alwaysShowsTodayOnHover },
+                set: { controller.setAlwaysShowTodayOnHover($0) }
+            ))
             .padding(.top, 12)
 
             Divider().padding(.vertical, 18)
             title("Startup")
-            Toggle("Launch at Login", isOn: Binding(
+            switchRow("Launch at Login", isOn: Binding(
                 get: { loginItems.isEnabled },
                 set: { enabled in Task { await loginItems.setEnabled(enabled) } }
             ))
-            .font(.system(size: 13))
-            .toggleStyle(.switch)
-            .controlSize(.small)
             .disabled(loginItems.isDemo || loginItems.isUpdating)
             .padding(.top, 8)
             subtitle(loginItems.isDemo ? "Unavailable in Demo." : "Start Glitter when you log in.")
@@ -151,6 +163,21 @@ struct SettingsView: View {
             .font(.system(size: 13, weight: .semibold))
     }
 
+    private func switchRow(_ text: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 13))
+                .accessibilityHidden(true)
+            Spacer(minLength: 12)
+            Toggle(text, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .fixedSize()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func subtitle(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11))
@@ -162,7 +189,8 @@ struct SettingsView: View {
 
 
 @MainActor
-final class SettingsWindowController {
+final class SettingsWindowController: NSObject, NSToolbarDelegate {
+    private let titleItemIdentifier = NSToolbarItem.Identifier("GlitterSettingsTitle")
     private var window: NSWindow?
     private let store: TaskStore
     private let controller: NotchPanelController
@@ -172,6 +200,7 @@ final class SettingsWindowController {
         self.store = store
         self.controller = controller
         self.loginItems = loginItems
+        super.init()
     }
 
     func show() {
@@ -198,6 +227,13 @@ final class SettingsWindowController {
             defer: false
         )
         window.title = "Glitter Settings"
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unifiedCompact
+        let toolbar = NSToolbar(identifier: "GlitterSettingsToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.centeredItemIdentifiers = [titleItemIdentifier]
+        window.toolbar = toolbar
         window.contentView = NSHostingView(rootView: view)
         window.isReleasedWhenClosed = false
         window.center()
@@ -205,5 +241,31 @@ final class SettingsWindowController {
 
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, titleItemIdentifier, .flexibleSpace]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard itemIdentifier == titleItemIdentifier else { return nil }
+        let label = NSTextField(labelWithString: "Glitter Settings")
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.widthAnchor.constraint(equalToConstant: 150),
+            label.heightAnchor.constraint(equalToConstant: 22)
+        ])
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.label = "Glitter Settings"
+        item.isBordered = false
+        item.view = label
+        return item
     }
 }
