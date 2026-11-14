@@ -1,0 +1,579 @@
+import SwiftUI
+
+// Select the property-wrapper type; the CLT SDK also exports an unavailable State macro.
+private typealias ViewState<Value> = SwiftUI.State<Value>
+
+@MainActor
+final class PanelState: ObservableObject {
+    @Published var expanded = false
+    @Published var pinned = false
+    @Published var geometry: NotchGeometry
+    private(set) var presentationSize: CGSize
+    private(set) var expansionProgress: CGFloat = 0
+    private(set) var monthProgress: CGFloat
+    @Published var headerHovered = false
+    @Published var toggleHovered = false
+    @Published var blockHovered = false
+    var dayExpanded = false
+    @Published var hoveredTaskID: String?
+
+    var onOpenSettings: (() -> Void)?
+    var onSelectDay: (() -> Void)?
+    var onSelectMonth: (() -> Void)?
+    var onToggleDay: (() -> Void)?
+    var onToggleMode: (() -> Void)?
+    var onDragChanged: (() -> Void)?
+    var onDragEnded: (() -> Void)?
+
+    init(geometry: NotchGeometry, mode: String = "today") {
+        self.geometry = geometry
+        presentationSize = geometry.collapsedRect.size
+        monthProgress = mode == "month" ? 1 : 0
+    }
+
+    func present(size: CGSize, expansion: CGFloat, month: CGFloat) {
+        guard presentationSize != size || expansionProgress != expansion || monthProgress != month else { return }
+        objectWillChange.send()
+        presentationSize = size
+        expansionProgress = expansion
+        monthProgress = month
+    }
+
+    var cornerRadius: CGFloat {
+        let collapsed: CGFloat = geometry.hasNotch ? 12 : 16
+        return collapsed + (26 - collapsed) * expansionProgress
+    }
+}
+
+struct NotchPanelView: View {
+    @ObservedObject var store: TaskStore
+    @ObservedObject var state: PanelState
+    private var g: NotchGeometry { state.geometry }
+    @Namespace private var taskMovement
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black
+            if state.expanded || state.expansionProgress > 0 {
+                expandedContent
+                    .frame(width: g.expandedWidth, height: state.presentationSize.height, alignment: .top)
+                    .opacity(state.expansionProgress)
+                    .allowsHitTesting(state.expanded)
+                    .accessibilityHidden(!state.expanded)
+            }
+
+        }
+        .frame(width: state.presentationSize.width, height: state.presentationSize.height, alignment: .top)
+        .contextMenu { PanelMenu(store: store, state: state) }
+    }
+
+    private var expandedContent: some View {
+        VStack(spacing: 0) {
+            if let notice = store.panelNotice {
+                PanelMessageView(message: notice, width: g.expandedWidth, padding: g.horizontalPadding,
+                                 compact: true, busy: store.isRefreshing || store.isMutating, action: perform)
+                    .frame(height: g.noticeHeight - g.padding, alignment: .top)
+                    .padding(.bottom, g.padding)
+            }
+            pages
+        }
+        .padding(.top, g.collapsedHeight + g.padding)
+    }
+
+    private func perform(_ action: PanelAction) {
+        switch action {
+        case .settings: state.onOpenSettings?()
+        case .refresh: store.retryLoad()
+        case .openList: store.openTrackedList()
+        case .retryCompletion: Task { await store.retryCompletion() }
+        }
+    }
+
+    private var message: some View {
+        PanelMessageView(message: store.panelMessage, width: g.expandedWidth, padding: g.horizontalPadding,
+                         busy: store.isRefreshing, demo: store.isDemo, action: perform)
+    }
+
+    private var pages: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Group {
+                if state.monthProgress < 1 {
+                    dayPage
+                } else {
+                    Color.clear.frame(height: g.monthViewportHeight)
+                }
+            }
+            .frame(width: g.expandedWidth, alignment: .top)
+            .allowsHitTesting(!g.showingMonth && state.monthProgress < 0.01)
+            .accessibilityHidden(g.showingMonth)
+            Group {
+                if state.monthProgress > 0 {
+                    if store.hasStatistics {
+                        MonthContent(store: store, geometry: g)
+                    } else {
+                        message
+                    }
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: g.expandedWidth, height: g.monthViewportHeight, alignment: .top)
+            .allowsHitTesting(g.showingMonth && state.monthProgress > 0.99)
+            .accessibilityHidden(!g.showingMonth)
+        }
+        .frame(width: g.expandedWidth * 2, alignment: .leading)
+        .offset(x: -g.expandedWidth * state.monthProgress)
+        .frame(width: g.expandedWidth, alignment: .leading)
+        .clipped()
+    }
+
+    private var overflowTasks: some View {
+        TodayContent(store: store, geometry: g,
+                     hoveredTaskID: g.overflowHeight > g.overflowViewportHeight + 0.5 ? nil : state.hoveredTaskID,
+                     tasks: Array(store.presentationTasks.dropFirst(g.overflowStartIndex)),
+                     contentHeight: g.overflowHeight, showsMessages: true, taskMovement: taskMovement,
+                     leadingClip: g.previewOverflowOffset, splitTaskID: splitTaskID)
+    }
+
+    private var splitTaskID: String? {
+        g.previewOverflowOffset > 0 && store.presentationTasks.indices.contains(g.overflowStartIndex)
+            ? store.presentationTasks[g.overflowStartIndex].id : nil
+    }
+
+    private var dayPage: some View {
+        VStack(spacing: 0) {
+            if store.hasStatistics && !store.todayTasks.isEmpty {
+                TodayContent(store: store, geometry: g, hoveredTaskID: state.hoveredTaskID,
+                             tasks: Array(store.presentationTasks.prefix(g.previewTaskCount)),
+                             contentHeight: g.dayOverflows ? g.previewContentHeight : g.todayContentHeight,
+                             showsMessages: !g.dayOverflows, taskMovement: taskMovement, splitTaskID: splitTaskID)
+                    .frame(height: g.dayPreviewHeight, alignment: .top)
+                    .clipped()
+                    .contentShape(Rectangle())
+                if g.dayOverflows {
+                    Color.clear.frame(height: g.footerHeight)
+                        .padding(.top, g.footerGap)
+                    if state.dayExpanded {
+                        Group {
+                            if g.overflowHeight > g.overflowViewportHeight + 0.5 {
+                                ScrollView(.vertical) { overflowTasks }
+                            } else {
+                                overflowTasks
+                            }
+                        }
+                        .frame(height: g.overflowViewportHeight, alignment: .top)
+                        .padding(.top, g.padding)
+                    }
+                }
+            } else {
+                message.frame(height: g.dayPreviewHeight, alignment: .topLeading)
+            }
+        }
+        .frame(width: g.expandedWidth, alignment: .top)
+    }
+
+}
+
+struct PanelHeaderView: View {
+    @ObservedObject var store: TaskStore
+    @ObservedObject var state: PanelState
+    private var g: NotchGeometry { state.geometry }
+
+    private var panelDrag: some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { _ in state.onDragChanged?() }
+            .onEnded { _ in state.onDragEnded?() }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            statusBar(width: proxy.size.width)
+                .frame(width: proxy.size.width, height: g.collapsedHeight)
+                .contentShape(Rectangle())
+                .simultaneousGesture(panelDrag)
+        }
+        .background(Color.black)
+        .contextMenu { PanelMenu(store: store, state: state) }
+    }
+
+    private func statusBar(width: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            if state.expanded {
+                Button(action: { state.onSelectDay?() }) {
+                    headerScore
+                        .padding(.leading, g.headerPadding)
+                        .frame(width: g.headerButtonWidth(in: width), height: g.collapsedHeight, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
+                                           bottomTrailingRadius: g.headerCornerRadius,
+                                           topTrailingRadius: g.headerCornerRadius, style: .circular)
+                        .fill(Color.white.opacity(state.headerHovered ? 0.18 : 0))
+                }
+                .animation(.easeOut(duration: 0.08), value: state.headerHovered)
+                .onHover { state.headerHovered = state.expanded && $0 }
+                .help("Show Day")
+                .accessibilityLabel("Show Day, today \(store.todayStat.done) of \(store.todayStat.due) completed")
+                Spacer(minLength: 0)
+                Button(action: { state.onSelectMonth?() }) {
+                    statusBlock
+                        .padding(.trailing, g.headerPadding)
+                        .frame(width: g.headerButtonWidth(in: width), height: g.collapsedHeight, alignment: .trailing)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: g.headerCornerRadius,
+                                           bottomLeadingRadius: g.headerCornerRadius,
+                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .circular)
+                        .fill(Color.white.opacity(state.blockHovered ? 0.18 : 0))
+                }
+                .animation(.easeOut(duration: 0.08), value: state.blockHovered)
+                .onHover { state.blockHovered = state.expanded && $0 }
+                .help("Show Month")
+                .accessibilityLabel("Show Month")
+            } else {
+                headerScore
+                Spacer(minLength: 0)
+                statusBlock
+            }
+        }
+        .padding(.horizontal, state.expanded ? 0 : g.headerPadding)
+    }
+
+    @ViewBuilder
+    private var headerScore: some View {
+        if store.hasStatistics {
+            scoreContents
+        } else {
+            Image(systemName: store.panelStatus.symbol)
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.secondary)
+                .help(store.panelStatus.title)
+        }
+    }
+
+    private var scoreContents: some View {
+        ScoreText(numerator: "\(store.todayStat.done)", denominator: "\(store.todayStat.due)", size: NotchGeometry.scoreFontSize, weight: .semibold)
+            .scaleEffect(g.scoreScale, anchor: .leading)
+            .frame(width: g.collapsedScoreWidth, height: 24, alignment: .leading)
+            .clipped()
+            .help(store.lastError == nil ? "\(store.todayStat.done)/\(store.todayStat.due)"
+                  : "Last update: \(store.todayStat.done)/\(store.todayStat.due). Refresh to continue.")
+    }
+
+    private var statusBlock: some View {
+        DayBlock(state: store.hasStatistics ? DayState(stat: store.todayStat) : .idle,
+                 size: g.blockSize, radius: 3, celebrationToken: store.goldenMoment)
+    }
+
+}
+
+struct PanelFooterView: View {
+    @ObservedObject var store: TaskStore
+    @ObservedObject var state: PanelState
+    var body: some View {
+        Button(action: { state.onToggleDay?() }) {
+            Image(systemName: state.dayExpanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white.opacity(state.toggleHovered ? 0.10 : 0))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { state.toggleHovered = state.expanded && $0 }
+        .help(state.dayExpanded ? "Collapse Day" : "Expand Day")
+        .accessibilityLabel(state.dayExpanded ? "Collapse Day" : "Expand Day")
+        .background(Color.black)
+        .contextMenu { PanelMenu(store: store, state: state) }
+    }
+}
+
+private struct PanelMenu: View {
+    @ObservedObject var store: TaskStore
+    @ObservedObject var state: PanelState
+    var body: some View {
+        Group {
+            if store.isDemo {
+                Menu("Demo Data") {
+                    Button("Sample Day") { store.loadDemoData() }
+                    Button("Long Day") { store.loadDemoData(taskCount: 12, completedCount: 3) }
+                    Button("Very Long Reminder") { store.loadLongTitleDemoData() }
+                    Button("Overdue Day") { store.loadOverdueDemoData() }
+                    Button("Overdue Cleared") { store.loadOverdueDemoData(completed: true) }
+                    Button("Save Error") { store.loadSaveFailureDemoData() }
+                    Button("Slow Save") { store.loadSlowSaveDemoData() }
+                    Button("Saved, Awaiting Refresh") { store.loadUnconfirmedSaveDemoData() }
+                    Button("Empty Day") { store.loadDemoData(taskCount: 0, completedCount: 0) }
+                    Button("Empty List") { store.loadEmptyListDemoData() }
+                    Button("Undated Reminders") { store.loadUndatedDemoData() }
+                    Button("Future Reminders") { store.loadFutureDemoData() }
+                    Button("All Complete") { store.loadDemoData(taskCount: 5, completedCount: 5) }
+                    Menu("Connection States") {
+                        Button("Loading") { store.loadStatusDemoData(.loading) }
+                        Button("Access Off") { store.loadStatusDemoData(.denied) }
+                        Button("No List Selected") { store.loadStatusDemoData(.unselected) }
+                        Button("List Unavailable") { store.loadStatusDemoData(.unavailable) }
+                        Button("Load Failed") { store.loadStatusDemoData(.failed) }
+                        Button("Refresh Failed · Keep Content") { store.loadStaleDemoData() }
+                    }
+                }
+                Divider()
+            }
+            Button("Settings…") { state.onOpenSettings?() }
+            Button("Refresh") { store.retryLoad() }
+                .disabled(store.isRefreshing || store.isMutating)
+            Button(store.expandedMode == "today" ? "Show Month" : "Show Day") { state.onToggleMode?() }
+            if store.selectedCalendars.count > 1 {
+                Menu("Open Tracked List") {
+                    ForEach(store.selectedCalendars, id: \.calendarIdentifier) { list in
+                        Button(list.title) { store.openTrackedList(list.calendarIdentifier) }
+                    }
+                }
+                .disabled(store.isDemo)
+            } else {
+                Button("Open Tracked List") { store.openTrackedList() }
+                    .disabled(store.isDemo || !store.canOpenTrackedList)
+            }
+            Divider()
+            Button("Quit Glitter") { NSApp.terminate(nil) }
+
+        }
+    }
+}
+
+struct TodayContent: View {
+    @ObservedObject var store: TaskStore
+    let geometry: NotchGeometry
+    var hoveredTaskID: String? = nil
+    var tasks: [TrackedTask]? = nil
+    var contentHeight: CGFloat? = nil
+    var showsMessages = true
+    private var displayedTasks: [TrackedTask] { tasks ?? store.presentationTasks }
+    let taskMovement: Namespace.ID
+    var leadingClip: CGFloat = 0
+    var splitTaskID: String? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(displayedTasks.map { PresentedRow(id: store.rowAnimationID(for: $0), task: $0) }) { row in
+                let task = row.task
+                let taskRow = TaskRow(task: task, rowHeight: geometry.taskHeight(task), horizontalPadding: geometry.horizontalPadding,
+                              locked: store.isMutating || !store.canCompleteTasks,
+                              saving: store.savingTaskID == task.id, sampledHover: hoveredTaskID == task.id) {
+                    Task { await store.completeTask(task.id) }
+                }
+                Group {
+                    if task.id == splitTaskID {
+                        taskRow
+                    } else {
+                        taskRow.matchedGeometryEffect(id: row.id, in: taskMovement)
+                    }
+                }
+                .opacity(store.movingTaskID == task.id ? 0 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: store.movingTaskID == nil ? 0.10 : 0.06), value: store.movingTaskID)
+                .transition(.identity)
+            }
+            if showsMessages && !store.todayTasks.isEmpty, let summary = store.presentationSummary {
+                Text(summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.gold.opacity(0.85))
+                    .frame(height: 16)
+                    .padding(.top, NotchGeometry.messageGap)
+                    .padding(.leading, geometry.taskTextInset)
+                    .padding(.trailing, geometry.horizontalPadding)
+            }
+        }
+        .offset(y: -leadingClip)
+        .frame(width: geometry.expandedWidth, height: contentHeight ?? geometry.todayContentHeight, alignment: .topLeading)
+        .clipped()
+        .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : .timingCurve(0.2, 0, 0, 1, duration: CompletionTiming.movement), value: store.presentationTasks)
+    }
+}
+
+private struct PresentedRow: Identifiable {
+    let id: String
+    let task: TrackedTask
+}
+
+private struct TaskRow: View {
+    let task: TrackedTask
+    let rowHeight: CGFloat
+    let horizontalPadding: CGFloat
+    let locked: Bool
+    let saving: Bool
+    let sampledHover: Bool
+    let onComplete: () -> Void
+    @ViewState private var hovered = false
+    @ViewState private var showsSpinner = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: onComplete) {
+            contents.contentShape(Rectangle())
+        }
+        .buttonStyle(TaskRowStyle())
+        .background(Color.white.opacity(saving ? 0.07 : (hovered || sampledHover) && !locked && !task.isCompleted ? 0.10 : 0))
+        .disabled(locked || task.isCompleted)
+        .onHover { hovered = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: saving)
+        .accessibilityRepresentation {
+            if task.isCompleted {
+                Text(verbatim: "\(task.title), Completed")
+            } else {
+                Button(action: onComplete) {
+                    Text(verbatim: "\(task.title), \(saving ? "Saving" : "To do")")
+                }
+                .disabled(locked)
+                .accessibilityHint(locked ? "Temporarily unavailable" : "Mark as complete")
+            }
+        }
+        .task(id: saving) {
+            showsSpinner = false
+            guard saving else { return }
+            do {
+                try await Task.sleep(nanoseconds: CompletionTiming.spinnerDelay)
+                guard !Task.isCancelled else { return }
+                showsSpinner = true
+            } catch { }
+        }
+    }
+
+    private var contents: some View {
+        HStack(alignment: .top, spacing: NotchGeometry.taskMarkerGap) {
+            Group {
+                if saving && showsSpinner {
+                    ProgressView().controlSize(.mini).scaleEffect(0.65)
+                } else {
+                    Image(systemName: task.isCompleted ? "checkmark" : "circle.fill")
+                        .font(.system(size: task.isCompleted ? 9 : 4, weight: .medium))
+                        .foregroundStyle(Theme.secondary)
+                }
+            }
+            .frame(width: NotchGeometry.taskMarkerWidth, height: 16, alignment: .leading)
+            Text(task.title.isEmpty ? "Untitled reminder" : task.title)
+                .font(.system(size: NotchGeometry.taskFontSize))
+                .foregroundStyle(task.isCompleted ? Theme.secondary : Theme.primary)
+                .strikethrough(task.isCompleted, color: Theme.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: NotchGeometry.taskRowHeight, alignment: .topLeading)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, NotchGeometry.taskRowPadding)
+        .frame(height: rowHeight, alignment: .topLeading)
+    }
+}
+
+private struct TaskRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        // Lock input during movement without dimming every other task in the list.
+        configuration.label.opacity(configuration.isPressed ? 0.85 : 1)
+    }
+}
+
+struct MonthContent: View {
+    @ObservedObject var store: TaskStore
+    let geometry: NotchGeometry
+
+    var body: some View {
+        VStack(spacing: 0) {
+            let month = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
+            let year = Text(String(store.calendar.component(.year, from: store.today)))
+                .font(.system(size: 18, weight: .regular))
+            Text("\(month) \(year)")
+            .foregroundStyle(Color.white.opacity(0.84))
+            .help("\(store.monthFullDays) \(store.monthFullDays == 1 ? "Golden Day" : "Golden Days") this month")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "\(store.monthTitle) \(store.calendar.component(.year, from: store.today)), \(store.monthFullDays) \(store.monthFullDays == 1 ? "Golden Day" : "Golden Days")"))
+            .font(.system(size: 13, weight: .medium)).lineLimit(1)
+            .frame(width: geometry.gridWidth, height: geometry.monthHeadingHeight, alignment: .leading)
+            Color.clear.frame(height: geometry.monthHeadingGap)
+            HStack(spacing: geometry.cellGap) {
+                ForEach(Array(["M", "T", "W", "T", "F", "S", "S"].enumerated()), id: \.offset) { _, day in
+                    Text(day).font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(width: geometry.cell)
+                }
+            }
+            .frame(height: geometry.monthWeekdayHeight, alignment: .top)
+            .accessibilityHidden(true)
+            VStack(spacing: geometry.cellGap) {
+                ForEach(Array(store.monthRows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: geometry.cellGap) {
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, day in
+                            if let day, let date = store.date(inMonth: day) {
+                                let stat = store.stat(for: date)
+                                let label = store.monthDetail(for: date)
+                                DayBlock(state: DayState(stat: stat, isFuture: date > store.today),
+                                         size: geometry.cell, radius: 4, celebratesGold: true,
+                                         isToday: date == store.today,
+                                         celebrationToken: date == store.today ? store.goldenMoment : 0)
+                                    .help(label)
+                                    .accessibilityLabel(label)
+                            } else {
+                                Color.clear.frame(width: geometry.cell, height: geometry.cell)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: geometry.gridWidth, height: geometry.monthContentHeight, alignment: .top)
+    }
+}
+
+/// Every non-ready state gets an explanation and one clear recovery action.
+struct PanelMessageView: View {
+    let message: PanelMessage
+    let width: CGFloat
+    let padding: CGFloat
+    var compact = false
+    var busy = false
+    var demo = false
+    let action: (PanelAction) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(message.title)
+                .font(.system(size: compact ? 12 : 13, weight: .semibold))
+                .foregroundStyle(Theme.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, padding)
+            Text(message.detail)
+                .font(.system(size: compact ? 11 : 12))
+                .foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, padding)
+                .padding(.top, 5)
+            if let target = message.action, let title = message.actionTitle {
+                FeedbackButton(title: title, busy: busy || (demo && target == .openList)) { action(target) }
+                    .help(demo && target == .openList ? "Demo does not open real reminders." : title)
+                    .padding(.top, 8)
+            }
+        }
+        .frame(width: width, alignment: .topLeading)
+    }
+}
+
+private struct FeedbackButton: View {
+    let title: String
+    let busy: Bool
+    let action: () -> Void
+    @ViewState private var hovered = false
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.primary.opacity(busy ? 0.5 : 1))
+                .frame(maxWidth: .infinity).frame(height: 28)
+                .background(Color.white.opacity(hovered && !busy ? 0.12 : 0.045))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TaskRowStyle())
+        .disabled(busy)
+        .onHover { hovered = $0 }
+    }
+}
