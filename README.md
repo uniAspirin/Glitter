@@ -4,11 +4,10 @@
 
 <a href="#en">English</a> · <a href="#cn">简体中文</a>
 
-<img src="docs/images/today.png" width="278" alt="Today's tasks in Glitter">
-<img src="docs/images/month.png" width="278" alt="Daily progress in Glitter's monthly calendar">
+<img src="docs/images/today.gif" width="1200" alt="Today's tasks in Glitter">
+
 
 <a id="en"></a>
-
 ## English
 
 Glitter is a small macOS app that keeps Apple Reminders tasks beside your notch and shows your daily progress in a monthly calendar. It grew out of SAND, an earlier project about time and grains of sand.
