@@ -35,7 +35,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         rebuildMenu()
 
-        DebugLog.write("launch fixed-header demo=\(demoMode) args=\(CommandLine.arguments.joined(separator: " "))")
 
 
         if demoMode {

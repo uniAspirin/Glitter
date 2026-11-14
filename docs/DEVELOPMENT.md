@@ -78,7 +78,7 @@ The script signs the app with hardened runtime and a secure timestamp, signs the
 
 ## Repository contents
 
-`Sources/`, `Resources/`, `Tests/`, documentation and build scripts belong in Git. `.signing/`, `.build/`, `build/`, `dist/` and the local React `ui-preview/` are ignored. Review a staged diff before publishing. Debug logs can contain list names and identifiers, so inspect logs and use fictional tasks for public screenshots.
+`Sources/`, `Resources/`, `Tests/`, documentation and build scripts belong in Git. `.signing/`, `.build/`, `build/`, `dist/` and the local React `ui-preview/` are ignored. Review a staged diff before publishing and use fictional tasks for public screenshots. Glitter's application code has no file logger. See the [privacy details](PRIVACY.md) for data storage and verification scope.
 
 ## 中文速览
 

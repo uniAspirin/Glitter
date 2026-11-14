@@ -217,7 +217,6 @@ final class NotchPanelController: ObservableObject {
         startScrollWatch()
         observeScreens()
 
-        DebugLog.write("screen=\(screen?.displayName ?? "No Display") notch=\(geometry.hasNotch ? 1 : 0) \(Int(geometry.notchWidth))x\(Int(geometry.notchHeight)) collapsed=\(Int(geometry.collapsedWidth))")
     }
 
     deinit {
@@ -317,7 +316,6 @@ final class NotchPanelController: ObservableObject {
         link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
         animationDisplayLink = link
         link.add(to: .main, forMode: .common)
-        DebugLog.write("animation continuous duration=0.14 refreshMax=\(Int(maximum))")
     }
 
     private func advanceAnimation(at timestamp: CFTimeInterval) {
@@ -737,7 +735,6 @@ final class NotchPanelController: ObservableObject {
             geometry.horizontalOffset = geometry.clampedOffset(offset)
         }
 
-        DebugLog.write("refresh mode=\(store.expandedMode) rows=\(rows) h=\(Int(geometry.expandedHeight)) w=\(Int(geometry.expandedWidth))")
         state.geometry = geometry
         updateWindowFrame(expanded: state.expanded, animated: animated)
         if !panel.isVisible { show() }
@@ -760,15 +757,10 @@ final class NotchPanelController: ObservableObject {
         let g = state.geometry
         let hot = NSPoint(x: g.hotZone.midX, y: g.hotZone.minY + 6)
         warp(hot)
-        DebugLog.write("selftest warp hot=\(hot) rect=\(g.hotZone)")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            DebugLog.write("selftest expanded=\(self.state.expanded)")
             let away = NSPoint(x: g.screenFrame.midX, y: g.screenFrame.midY)
             self.warp(away)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                DebugLog.write("selftest collapsed=\(!self.state.expanded)")
-            }
         }
     }
 

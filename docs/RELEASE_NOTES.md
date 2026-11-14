@@ -8,6 +8,7 @@ First public version of Glitter, formerly Sand Notch.
 - Day and Month views, trackpad gestures and an expandable task preview.
 - Eight gold levels for daily progress, with a glow for fully completed days.
 - Multiple tracked Reminders lists using Command-click in Settings.
+- Local task processing, with no direct network requests, analytics or application logs. Only list selection and panel preferences are saved.
 - External display support, Launch at Login, Reduce Motion and recovery states.
 
 Requires macOS 14 or later and Apple Silicon. Open the DMG and drag Glitter to Applications. Grant Reminders access, then choose your lists in Settings.
@@ -22,6 +23,7 @@ Glitter 的首个公开版本，原名 Sand Notch。
 - Day 和 Month 视图、触控板手势，以及可展开的任务预览。
 - 八级金色显示完成进度，全部完成的日期带有光晕。
 - 在设置中按住 Command 点击，可跟踪多个提醒事项列表。
+- 本地处理任务，不主动联网，不含统计追踪或应用日志，仅保存列表选择与面板设置。
 - 支持外接显示器、登录时启动、减少动态效果和异常恢复。
 
 支持 macOS 14 及以上版本和 Apple Silicon。打开 DMG，将 Glitter 拖入 Applications。首次启动允许提醒事项访问，再在设置中选择列表。

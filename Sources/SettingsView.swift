@@ -167,7 +167,6 @@ final class SettingsWindowController {
 
     func show() {
         loginItems.refresh()
-        DebugLog.write("settings.show called, existing=\(window != nil)")
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -197,6 +196,5 @@ final class SettingsWindowController {
 
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        DebugLog.write("settings window frame=\(window.frame) visible=\(window.isVisible)")
     }
 }

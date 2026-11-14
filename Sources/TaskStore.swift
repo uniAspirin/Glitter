@@ -3,21 +3,6 @@ import Combine
 import EventKit
 import Foundation
 
-/// 调试用：把关键状态写进 build/status.log，方便用 `open` 启动时也能看到结果
-enum DebugLog {
-    static func write(_ line: String) {
-        let url = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("status.log")
-        let text = line + "\n"
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(text.data(using: .utf8) ?? Data())
-            try? handle.close()
-        } else {
-            try? text.write(to: url, atomically: true, encoding: .utf8)
-        }
-    }
-}
-
 struct TrackedTask: Identifiable, Equatable {
     let id: String
     var calendarID: String?
@@ -413,7 +398,6 @@ final class TaskStore: ObservableObject {
         let nextMode = mode == "week" ? "today" : mode
         guard nextMode == "today" || nextMode == "month", nextMode != expandedMode else { return }
         expandedMode = nextMode
-        DebugLog.write("expandedMode -> \(expandedMode) rows=\(expandedRows)")
         onUpdate?()
     }
 
@@ -483,7 +467,6 @@ final class TaskStore: ObservableObject {
             access = .denied
             lastError = error.localizedDescription
         }
-        DebugLog.write("request access granted=\(access == .granted) status=\(authorizationStatus.rawValue)")
         if access == .granted {
             refreshCalendars()
             reload()
@@ -504,7 +487,6 @@ final class TaskStore: ObservableObject {
         do {
             let granted = try await ek.requestFullAccessToReminders()
             access = granted ? .granted : .denied
-            DebugLog.write("force request granted=\(granted)")
             if granted {
                 refreshCalendars()
                 reload()
@@ -512,7 +494,6 @@ final class TaskStore: ObservableObject {
                 onUpdate?()
             }
         } catch {
-            DebugLog.write("force request error=\(error.localizedDescription)")
             access = .denied
             onUpdate?()
         }
@@ -521,9 +502,6 @@ final class TaskStore: ObservableObject {
     func refreshCalendars() {
         guard !isDemo, authorizationStatus == .fullAccess else { return }
         calendars = ek.calendars(for: .reminder)
-        for cal in calendars {
-            DebugLog.write("calendar \(cal.title) | \(cal.source?.title ?? "-") | \(cal.calendarIdentifier)")
-        }
         calendars.sort { ($0.source?.title ?? "") + $0.title < ($1.source?.title ?? "") + $1.title }
     }
 
@@ -670,7 +648,6 @@ final class TaskStore: ObservableObject {
         failedTaskID = nil
         needsReconciliation = false
         loaded = true
-        DebugLog.write("reminders loaded")
         onUpdate?()
     }
 
