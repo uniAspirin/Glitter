@@ -69,6 +69,8 @@ extension NotchPanelController {
         check(store.expandedMode == "today", "Collapsed block does not change the page")
         capture("folded")
         c.expand()
+        let hoverDuration = c.motion!.duration
+        check(hoverDuration == 0.12, "Hover expansion takes 120ms")
         finish()
         check(c.panel.frame.midX == builtIn.frame.midX, "Native window centers exactly on the 185pt notch")
         var dayHeight = c.panel.frame.height
@@ -76,6 +78,7 @@ extension NotchPanelController {
         check(c.panel.frame.width == width && c.panel.frame.maxY == top, "Expansion preserves notch width and top edge")
         check(!c.state.geometry.dayOverflows, "Short Day has no disclosure")
         c.state.onSelectMonth?()
+        check(c.motion?.duration == 0.14, "Changing pages retains its existing motion duration")
         finish()
         check(store.expandedMode == "month", "Right block selects Month")
         check(c.panel.frame.height > dayHeight, "Short Day fits its content while Month retains calendar height")
@@ -134,6 +137,7 @@ extension NotchPanelController {
         swipe(dx: 30, inverted: false)
         check(store.expandedMode == "month", "Non-natural scroll setting preserves physical push direction")
         c.collapse()
+        check(c.motion?.duration == hoverDuration, "Hover collapse and expansion use the same duration")
         finish()
         check(store.expandedMode == "month", "Hover collapse retains selected page")
         check(c.panel.frame.height == c.state.geometry.collapsedHeight, "Collapse settles at exact header height")
@@ -299,7 +303,7 @@ extension NotchPanelController {
         check(abs(c.interactionFrame.height - beforeFirstTick) < 0.001, "Reversal before first display tick preserves visible height")
         finish()
         c.expand()
-        if let opening = c.motion { c.advanceAnimation(at: opening.started + 0.06) }
+        if let opening = c.motion { c.advanceAnimation(at: opening.started + opening.duration * 0.4) }
         let interruptedHeight = c.interactionFrame.height
         c.collapse()
         check(abs(c.interactionFrame.height - interruptedHeight) < 0.001, "Reversing animation preserves current visible height")

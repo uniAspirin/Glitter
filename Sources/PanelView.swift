@@ -49,18 +49,27 @@ struct NotchPanelView: View {
     @ObservedObject var store: TaskStore
     @ObservedObject var state: PanelState
     private var g: NotchGeometry { state.geometry }
+    private var dayGeometry: NotchGeometry {
+        var geometry = g
+        geometry.showingMonth = false
+        return geometry
+    }
+    private var monthGeometry: NotchGeometry {
+        var geometry = g
+        geometry.showingMonth = true
+        geometry.dayExpanded = false
+        return geometry
+    }
     @Namespace private var taskMovement
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black
-            if state.expanded || state.expansionProgress > 0 {
-                expandedContent
-                    .frame(width: g.expandedWidth, height: state.presentationSize.height, alignment: .top)
-                    .opacity(state.expansionProgress)
-                    .allowsHitTesting(state.expanded)
-                    .accessibilityHidden(!state.expanded)
-            }
+            expandedContent
+                .frame(width: g.expandedWidth, height: state.presentationSize.height, alignment: .top)
+                .opacity(state.expansionProgress)
+                .allowsHitTesting(state.expanded)
+                .accessibilityHidden(!state.expanded)
 
         }
         .frame(width: state.presentationSize.width, height: state.presentationSize.height, alignment: .top)
@@ -95,26 +104,17 @@ struct NotchPanelView: View {
     }
 
     private var pages: some View {
+        // Keep both view trees alive across hover and page changes.
         HStack(alignment: .top, spacing: 0) {
+            dayPage
+                .frame(width: g.expandedWidth, alignment: .top)
+                .allowsHitTesting(!g.showingMonth && state.monthProgress < 0.01)
+                .accessibilityHidden(g.showingMonth)
             Group {
-                if state.monthProgress < 1 {
-                    dayPage
+                if store.hasStatistics {
+                    MonthContent(store: store, geometry: monthGeometry)
                 } else {
-                    Color.clear.frame(height: g.monthViewportHeight)
-                }
-            }
-            .frame(width: g.expandedWidth, alignment: .top)
-            .allowsHitTesting(!g.showingMonth && state.monthProgress < 0.01)
-            .accessibilityHidden(g.showingMonth)
-            Group {
-                if state.monthProgress > 0 {
-                    if store.hasStatistics {
-                        MonthContent(store: store, geometry: g)
-                    } else {
-                        message
-                    }
-                } else {
-                    Color.clear
+                    message
                 }
             }
             .frame(width: g.expandedWidth, height: g.monthViewportHeight, alignment: .top)
@@ -128,7 +128,7 @@ struct NotchPanelView: View {
     }
 
     private var overflowTasks: some View {
-        TodayContent(store: store, geometry: g,
+        TodayContent(store: store, geometry: dayGeometry,
                      hoveredTaskID: g.overflowHeight > g.overflowViewportHeight + 0.5 ? nil : state.hoveredTaskID,
                      tasks: Array(store.presentationTasks.dropFirst(g.overflowStartIndex)),
                      contentHeight: g.overflowHeight, showsMessages: true, taskMovement: taskMovement,
@@ -143,7 +143,7 @@ struct NotchPanelView: View {
     private var dayPage: some View {
         VStack(spacing: 0) {
             if store.hasStatistics && !store.todayTasks.isEmpty {
-                TodayContent(store: store, geometry: g, hoveredTaskID: state.hoveredTaskID,
+                TodayContent(store: store, geometry: dayGeometry, hoveredTaskID: state.hoveredTaskID,
                              tasks: Array(store.presentationTasks.prefix(g.previewTaskCount)),
                              contentHeight: g.dayOverflows ? g.previewContentHeight : g.todayContentHeight,
                              showsMessages: !g.dayOverflows, taskMovement: taskMovement, splitTaskID: splitTaskID)

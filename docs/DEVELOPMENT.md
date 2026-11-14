@@ -1,6 +1,6 @@
 # Developing Glitter
 
-Glitter 1.1 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
+Glitter 1.1.1 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
 ## Build and run
 
@@ -56,7 +56,7 @@ Month is recalculated from current reminder records, without daily history snaps
 
 The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Hover entry selects Today on the left half or Month on the right half, with the exact midpoint assigned to the right. The choice is made only on entry. The Today preference overrides both halves. A completely collapsed panel prepares the selected page before expansion. Re-entry during collapse retargets the existing animation from its current presentation frame. Manual view switches remain available while expanded. Day disclosure lasts for the current run.
 
-Window transitions use native display-link timing and cached view snapshots. The live task views resume after the transition. Reduce Motion is respected.
+Window transitions use native display-link timing and cached view snapshots. Hover expansion and collapse take 120 ms, with a separate 140 ms grace period before collapse. Day and Month view trees and snapshot layers remain in memory for reuse. Selecting a page reuses measured geometry and updates presentation without publishing task-data changes or rebuilding the menu. Data and display changes refresh the cached snapshots. The live task views resume after the transition. Reduce Motion is respected.
 
 ## Package a DMG
 
@@ -64,7 +64,7 @@ Window transitions use native display-link timing and cached view snapshots. The
 ./package.sh
 ```
 
-This rebuilds the production app and creates `dist/Glitter-1.1.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
+This rebuilds the production app and creates `dist/Glitter-1.1.1.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
 
 The default build uses ad-hoc signing. A successful local signature check does not imply Apple notarization or Gatekeeper acceptance on another Mac. Gatekeeper may block an unnotarized download.
 

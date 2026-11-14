@@ -102,6 +102,7 @@ final class NotchPanelController: ObservableObject {
         let duration: TimeInterval
     }
     private static let motionDuration: TimeInterval = 0.14
+    private static let expansionDuration: TimeInterval = 0.12
     private let displayLinkTarget = AnimationDisplayLinkTarget()
     private var animationDisplayLink: CADisplayLink?
     private var motion: Motion?
@@ -246,22 +247,15 @@ final class NotchPanelController: ObservableObject {
     func expand(mode: String? = nil) {
         guard !state.expanded else { return }
         cancelScheduledCollapse()
-        state.expanded = true
         if let mode { store.setExpandedMode(mode) }
+        state.expanded = true
         updateWindowFrame(expanded: true, animated: true)
         show()
     }
 
     private func expandForHover(at point: NSPoint) {
         let mode = alwaysShowsTodayOnHover || point.x < interactionFrame.midX ? "today" : "month"
-        if motion == nil {
-            // Select the hidden page before revealing it, so another page never flashes first.
-            store.setExpandedMode(mode)
-            expand()
-        } else {
-            // Retarget a closing panel from its current frame and velocity.
-            expand(mode: mode)
-        }
+        expand(mode: mode)
     }
 
     func collapse() {
@@ -319,7 +313,8 @@ final class NotchPanelController: ObservableObject {
         }
         snapshotWork?.cancel()
         store.setPresentationDeferred(true)
-        let duration = Self.motionDuration
+        let changesExpansion = start.second.second.first != target.second.second.first
+        let duration = changesExpansion ? Self.expansionDuration : Self.motionDuration
         motion = Motion(start: start, target: target,
                         velocity: Self.boundedVelocity(velocity, displacement: target - start, duration: duration),
                         started: CACurrentMediaTime(), duration: duration)
@@ -536,7 +531,8 @@ final class NotchPanelController: ObservableObject {
         guard state.geometry.dayOverflows, !state.geometry.showingMonth, state.dayExpanded != expanded else { return }
         cancelScheduledCollapse()
         state.dayExpanded = expanded
-        refreshGeometry(animated: true)
+        state.geometry.dayExpanded = expanded
+        updateWindowFrame(expanded: true, animated: true)
     }
 
     private func selectMode(_ mode: String) {
@@ -728,8 +724,21 @@ final class NotchPanelController: ObservableObject {
 
     private func dataChanged() {
         let modeChanged = state.geometry.showingMonth != (store.expandedMode == "month")
-        if !modeChanged { renderCache.invalidate() }
-        if motion != nil && !modeChanged {
+        if modeChanged {
+            // Both pages already have measured geometry and cached images.
+            state.geometry.showingMonth = store.expandedMode == "month"
+            if state.expanded {
+                updateWindowFrame(expanded: true, animated: true)
+            } else if motion == nil {
+                // Select the hidden page without laying out the collapsed window again.
+                let month: CGFloat = state.geometry.showingMonth ? 1 : 0
+                presentedVector = Self.vector(rect: panel.frame, expansion: 0, month: month)
+                state.present(size: panel.frame.size, expansion: 0, month: month)
+            }
+            return
+        }
+        renderCache.invalidate()
+        if motion != nil {
             pendingDataChange = true
         } else {
             refreshGeometry(animated: state.expanded)

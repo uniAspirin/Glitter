@@ -25,7 +25,7 @@ Read the [privacy details and verification notes](docs/PRIVACY.md).
 
 ### Download
 
-Download [Glitter 1.1](https://github.com/uniAspirin/Glitter/releases/download/v1.1/Glitter-1.1.dmg). Requires macOS 14 or later and Apple Silicon.
+Download [Glitter 1.1.1](https://github.com/uniAspirin/Glitter/releases/download/v1.1.1/Glitter-1.1.1.dmg). Requires macOS 14 or later and Apple Silicon.
 
 Open the DMG and drag Glitter to Applications.
 
@@ -51,7 +51,7 @@ Glitter 是一个小型 macOS 应用，将 Apple Reminders 中的任务放在刘
 
 ### 下载
 
-下载 [Glitter 1.1](https://github.com/uniAspirin/Glitter/releases/download/v1.1/Glitter-1.1.dmg)。支持 macOS 14 及以上版本，需要 Apple Silicon 芯片。
+下载 [Glitter 1.1.1](https://github.com/uniAspirin/Glitter/releases/download/v1.1.1/Glitter-1.1.1.dmg)。支持 macOS 14 及以上版本，需要 Apple Silicon 芯片。
 
 打开 DMG，将 Glitter 拖入 Applications。
 

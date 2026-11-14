@@ -91,7 +91,8 @@ final class TaskStore: ObservableObject {
     @Published private(set) var loaded = false
     @Published private(set) var isRefreshing = false
     /// Today / Month disclosure is retained only in this process.
-    @Published private(set) var expandedMode: String
+    /// The controller publishes page geometry without invalidating task-data observers.
+    private(set) var expandedMode: String
 
     @Published private(set) var isMutating = false
     @Published private(set) var savingTaskID: String?
@@ -103,6 +104,17 @@ final class TaskStore: ObservableObject {
     @Published private(set) var movingTaskID: String?
 
     var onUpdate: (() -> Void)?
+    private lazy var monthNameFormatter = makeCalendarFormatter("MMMM")
+    private lazy var dayDetailFormatter = makeCalendarFormatter("EEEE, MMMM d, yyyy")
+
+    private func makeCalendarFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = format
+        return formatter
+    }
     private let mutationService: ReminderMutationService?
     private var sourceTasks: [TrackedTask] = []
     private var appliedDay: Date?
@@ -299,12 +311,8 @@ final class TaskStore: ObservableObject {
 
     func monthDetail(for date: Date) -> String {
         let day = calendar.startOfDay(for: date)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "EEEE, MMMM d, yyyy"
-        let title = (day == today ? "Today · " : "") + formatter.string(from: day)
+        if dayDetailFormatter.timeZone != calendar.timeZone { dayDetailFormatter.timeZone = calendar.timeZone }
+        let title = (day == today ? "Today · " : "") + dayDetailFormatter.string(from: day)
         if day > today { return "\(title)\nUpcoming" }
         let stat = stat(for: day)
         if stat.isEmpty { return "\(title)\nNothing scheduled" }
@@ -320,12 +328,8 @@ final class TaskStore: ObservableObject {
     var completedTasks: [TrackedTask] { todayTasks.filter { $0.isCompleted } }
 
     var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "MMMM"
-        return formatter.string(from: today)
+        if monthNameFormatter.timeZone != calendar.timeZone { monthNameFormatter.timeZone = calendar.timeZone }
+        return monthNameFormatter.string(from: today)
     }
     var monthFullDays: Int { monthStats.filter { $0.day <= today && $0.isFull }.count }
 

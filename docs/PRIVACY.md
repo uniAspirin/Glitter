@@ -1,6 +1,6 @@
 # Privacy
 
-Glitter 1.1 processes reminders on your Mac through Apple's EventKit API. It makes no direct network requests and includes no advertising, analytics or application logging service.
+Glitter 1.1.1 processes reminders on your Mac through Apple's EventKit API. It makes no direct network requests and includes no advertising, analytics or application logging service.
 
 ## Data on your Mac
 

@@ -33,9 +33,18 @@ extension NotchPanelController {
 
         check(!c.alwaysShowsTodayOnHover, "Directional hover is the default")
         close(on: "month")
+        let cachedDay = c.renderCache.snapshot(page: .day, store: store, state: c.state)
+        let cachedMonth = c.renderCache.snapshot(page: .month, store: store, state: c.state)
+        check(cachedDay != nil && cachedMonth != nil, "Both pages are prepared before hover entry")
+        var menuUpdates = 0
+        c.onDataChanged = { menuUpdates += 1 }
+        var taskUpdates = 0
+        let taskSubscription = store.objectWillChange.sink { taskUpdates += 1 }
         c.pollCursor(at: entry(-0.25))
         check(c.state.expanded && store.expandedMode == "today", "Entry immediately left of center opens Today")
         check(c.state.monthProgress == 0, "Left entry prepares Today before expansion begins")
+        check(c.motion?.start.second.second.second == c.motion?.target.second.second.second,
+              "Opening another page selects it before the vertical animation")
         c.pollCursor(at: entry(1))
         check(store.expandedMode == "today", "Crossing the center during opening does not switch pages")
         finish()
@@ -47,6 +56,12 @@ extension NotchPanelController {
         check(c.state.expanded && store.expandedMode == "month", "Entry immediately right of center opens Month")
         check(c.state.monthProgress == 1, "Right entry prepares Month without flashing Today first")
         finish()
+        check(menuUpdates == 0, "Selecting the hover page does not rebuild the unrelated menu")
+        check(taskUpdates == 0, "Selecting pages only updates presentation rather than publishing task-data changes")
+        taskSubscription.cancel()
+        check(c.renderCache.snapshot(page: .day, store: store, state: c.state)?.body === cachedDay?.body
+              && c.renderCache.snapshot(page: .month, store: store, state: c.state)?.body === cachedMonth?.body,
+              "Alternating hover entry reuses both original page images")
         close(on: "today")
         c.pollCursor(at: entry(0))
         finish()
@@ -80,7 +95,7 @@ extension NotchPanelController {
         finish()
         check(store.expandedMode == "month", "Disabling the option restores directional entry")
         c.collapse()
-        if let motion = c.motion { c.advanceAnimation(at: motion.started + 0.025) }
+        if let motion = c.motion { c.advanceAnimation(at: motion.started + motion.duration * 0.4) }
         let before = c.interactionFrame
         c.pollCursor(at: NSPoint(x: before.midX - 1, y: before.maxY - 10))
         check(c.state.expanded && store.expandedMode == "today", "Re-entry during collapse selects the new entry side")
@@ -104,6 +119,14 @@ extension NotchPanelController {
         c.pollCursor(at: entry(1))
         finish()
         check(store.expandedMode == "month", "External-display hover uses that panel's center")
+
+        let previousDay = c.renderCache.snapshot(page: .day, store: store, state: c.state)
+        let previousMonth = c.renderCache.snapshot(page: .month, store: store, state: c.state)
+        store.fixtureTasks(count: 5, completed: 3)
+        finish()
+        check(c.renderCache.snapshot(page: .day, store: store, state: c.state)?.body !== previousDay?.body
+              && c.renderCache.snapshot(page: .month, store: store, state: c.state)?.body !== previousMonth?.body,
+              "Changed task data replaces both cached pages")
 
         let demoDefaults = DemoDefaults()
         let demo = NotchPanelController(store: TaskStore.todayFixture().0, defaults: demoDefaults)

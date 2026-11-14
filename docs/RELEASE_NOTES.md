@@ -1,3 +1,31 @@
+# Glitter 1.1.1
+
+## English
+
+- Hover expansion and collapse both take 120 ms. A separate 140 ms grace period before collapse helps prevent accidental closing near the edge.
+- Day and Month views, animation snapshots and layers stay in memory for reuse. Task and display changes refresh the cached content.
+- Selecting a page reuses measured layout and avoids unnecessary task-data notifications and menu updates.
+- Monthly labels and date tooltips reuse date formatters.
+
+Validated with 681 automated checks using fictional tasks, plus native Demo checks for Day/Month switching and task completion.
+
+Requires macOS 14 or later and Apple Silicon. Open the DMG and drag Glitter to Applications.
+
+The app uses ad-hoc signing and has not been notarized by Apple. macOS may require approval under System Settings → Privacy & Security → Open Anyway.
+
+## 简体中文
+
+- 鼠标移入展开、移出收起的动画统一为 120 ms。收起前保留独立的 140 ms 缓冲，减少鼠标短暂越过边缘时的误收起。
+- Day、Month 视图及动画图片、图层常驻内存复用。任务和显示器变化时刷新缓存。
+- 切换页面复用已有布局，减少不必要的任务数据通知和菜单更新。
+- 月份标题和日期悬浮说明复用日期格式化器。
+
+通过 681 项假数据自动检查，并在原生 Demo 中验证 Day/Month 切换及任务完成后的更新。
+
+支持 macOS 14 及以上版本和 Apple Silicon。打开 DMG，将 Glitter 拖入 Applications。
+
+应用使用 ad-hoc 签名，尚未经过 Apple 公证。macOS 如阻止首次启动，可在系统设置 → 隐私与安全性中选择“仍要打开”。
+
 # Glitter 1.1
 
 ## English

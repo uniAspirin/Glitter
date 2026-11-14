@@ -73,7 +73,7 @@ final class PanelSnapshotLayer {
     private weak var hosting: NSView?
     private var daySnapshot: PanelSnapshot?
     private var monthSnapshot: PanelSnapshot?
-    var isVisible: Bool { daySnapshot != nil }
+    private(set) var isVisible = false
 
     init(surface: NSView, hosting: NSView) {
         self.hosting = hosting
@@ -88,15 +88,16 @@ final class PanelSnapshotLayer {
     }
 
     func show(day daySnapshot: PanelSnapshot, month monthSnapshot: PanelSnapshot) {
+        if self.daySnapshot?.body !== daySnapshot.body { day.contents = daySnapshot.body }
+        if self.monthSnapshot?.body !== monthSnapshot.body { month.contents = monthSnapshot.body }
         self.daySnapshot = daySnapshot
         self.monthSnapshot = monthSnapshot
         let scale = CGFloat(daySnapshot.body.width) / daySnapshot.size.width
         for layer in [container, day, month] { layer.contentsScale = scale }
-        day.contents = daySnapshot.body
-        month.contents = monthSnapshot.body
         hosting?.autoresizingMask = []
         hosting?.isHidden = true
         container.isHidden = false
+        isVisible = true
     }
 
     func prepareLive(size: CGSize) {
@@ -119,10 +120,7 @@ final class PanelSnapshotLayer {
     func hide(size: CGSize) {
         guard isVisible else { return }
         container.isHidden = true
-        day.contents = nil
-        month.contents = nil
-        daySnapshot = nil
-        monthSnapshot = nil
+        isVisible = false
         hosting?.frame = NSRect(origin: .zero, size: size)
         hosting?.autoresizingMask = [.width, .height]
         hosting?.isHidden = false
