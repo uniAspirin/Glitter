@@ -23,20 +23,13 @@ struct NotchGeometry: Equatable {
     var collapsedScoreWidth: CGFloat = Self.reservedScoreWidth
     var scoreScale: CGFloat = 1
     var showingMonth = false
-    var dayExpanded = false
-    var previewTaskCount = 0
-    var previewContentHeight: CGFloat = 24
     var todayContentHeight: CGFloat = 24
-    var taskContentHeight: CGFloat = 0
-    var previewOverflowOffset: CGFloat = 0
     var noticeHeight: CGFloat = 0
     var showsTaskContent = true
     var showsCalendar = true
 
     let padding: CGFloat = 12
     let blockSize: CGFloat = 13
-    let footerGap: CGFloat = 6
-    let footerHeight: CGFloat = 26
     let headerPadding: CGFloat = 8
     var horizontalPadding: CGFloat { headerPadding }
     static let scoreFontSize: CGFloat = 11
@@ -83,26 +76,16 @@ struct NotchGeometry: Equatable {
     var gridHeight: CGFloat { CGFloat(rows) * cell + CGFloat(rows - 1) * cellGap }
     var monthContentHeight: CGFloat { monthHeadingHeight + monthHeadingGap + monthWeekdayHeight + gridHeight + 6 }
     var monthViewportHeight: CGFloat { showsCalendar ? monthContentHeight : todayContentHeight }
-    var dayPreviewLimit: CGFloat { 6 * (Self.taskRowHeight + 2 * Self.taskRowPadding) }
-    var dayPreviewHeight: CGFloat { dayOverflows ? dayPreviewLimit : todayContentHeight }
-    var dayOverflows: Bool { showsTaskContent && taskContentHeight > dayPreviewLimit }
-    var overflowStartIndex: Int { max(0, previewTaskCount - (previewOverflowOffset > 0 ? 1 : 0)) }
-    var dayBaseHeight: CGFloat { dayPreviewHeight + (dayOverflows ? footerHeight + footerGap : 0) }
-    var toggleTop: CGFloat { monthTop + dayPreviewHeight + footerGap }
     var monthTop: CGFloat { collapsedHeight + padding + noticeHeight }
-    var overflowHeight: CGFloat { max(0, todayContentHeight - previewContentHeight) }
+    var maximumExpandedHeight: CGFloat {
+        max(collapsedHeight, min(screenFrame.height - 8, ceil(monthTop + monthViewportHeight + padding)))
+    }
+    var dayViewportHeight: CGFloat {
+        max(0, min(todayContentHeight, maximumExpandedHeight - monthTop - padding))
+    }
+    var dayScrolls: Bool { todayContentHeight > dayViewportHeight + 0.5 }
     var expandedHeight: CGFloat {
-        let bodyHeight = showingMonth ? monthViewportHeight : dayBaseHeight
-        let extra = !showingMonth && dayExpanded && dayOverflows ? overflowHeight + padding : 0
-        let bottomPadding = showingMonth || !dayOverflows || dayExpanded ? padding : 0
-        return min(screenFrame.height - 8, ceil(monthTop + bodyHeight + bottomPadding + extra))
-    }
-    var overflowViewportHeight: CGFloat {
-        max(0, expandedHeight - toggleTop - footerHeight - 2 * padding)
-    }
-    func toggleInteractionRect(in frame: NSRect) -> NSRect {
-        NSRect(x: frame.minX, y: frame.maxY - toggleTop - footerHeight,
-               width: frame.width, height: footerHeight)
+        showingMonth ? maximumExpandedHeight : min(maximumExpandedHeight, ceil(monthTop + dayViewportHeight + padding))
     }
     func blockInteractionRect(in frame: NSRect) -> NSRect {
         NSRect(x: frame.maxX - headerButtonWidth, y: frame.maxY - collapsedHeight,
@@ -111,35 +94,11 @@ struct NotchGeometry: Equatable {
 
     mutating func measureToday(tasks: [TrackedTask], error: String?, summary: String?) {
         showsTaskContent = true
-        taskContentHeight = tasks.reduce(0) { $0 + taskHeight($1) }
-        previewOverflowOffset = 0
         todayContentHeight = todayHeight(tasks: tasks, error: error, summary: summary)
-        previewTaskCount = tasks.count
-        previewContentHeight = todayContentHeight
-        guard dayOverflows else { return }
-        previewTaskCount = 0
-        previewContentHeight = 0
-        for task in tasks {
-            let remaining = dayPreviewHeight - previewContentHeight
-            guard remaining > 0 else { break }
-            let height = taskHeight(task)
-            previewTaskCount += 1
-            if height > remaining {
-                previewOverflowOffset = textBoundary(in: task, within: remaining)
-                if previewOverflowOffset == 0 { previewTaskCount -= 1 }
-                previewContentHeight += previewOverflowOffset
-                break
-            }
-            previewContentHeight += height
-        }
     }
     mutating func measureMessage(_ message: PanelMessage) {
         showsTaskContent = false
-        taskContentHeight = 0
-        previewOverflowOffset = 0
         todayContentHeight = message.height(width: contentWidth) + 4
-        previewContentHeight = todayContentHeight
-        previewTaskCount = 0
     }
     func todayHeight(tasks: [TrackedTask], error: String? = nil, summary: String? = nil) -> CGFloat {
         var height: CGFloat = tasks.isEmpty ? 24 : 0
@@ -160,47 +119,18 @@ struct NotchGeometry: Equatable {
         return max(Self.taskRowHeight, ceil(bounds.height) + 1) + 2 * Self.taskRowPadding
     }
 
-    /// Split a very tall reminder between complete text lines, never through glyphs.
-    private func textBoundary(in task: TrackedTask, within available: CGFloat) -> CGFloat {
-        let storage = NSTextStorage(string: task.title, attributes: [.font: NSFont.systemFont(ofSize: Self.taskFontSize)])
-        let manager = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: taskTextWidth, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        manager.addTextContainer(container)
-        storage.addLayoutManager(manager)
-        manager.ensureLayout(for: container)
-        var boundary: CGFloat = 0
-        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { rect, _, _, _, stop in
-            let bottom = ceil(rect.maxY) + Self.taskRowPadding
-            if bottom <= available { boundary = bottom } else { stop.pointee = true }
-        }
-        // If the remaining space cannot fit even one line, leave this entire row below the arrow.
-        return boundary
-    }
-
     func taskInteractionRects(tasks: [TrackedTask], in frame: NSRect) -> [(id: String, rect: NSRect)] {
-        guard !showingMonth else { return [] }
-        var previewTop = frame.maxY - monthTop
-        var overflowTop = frame.maxY - toggleTop - footerHeight - padding
+        // A scrolling list uses each native row's hover, which follows the scroll offset.
+        guard !showingMonth, !dayScrolls else { return [] }
+        var top = frame.maxY - monthTop
         var result: [(id: String, rect: NSRect)] = []
-        for (index, task) in tasks.enumerated() {
+        for task in tasks {
             let height = taskHeight(task)
-            if !dayOverflows || index < previewTaskCount {
-                let visibleBottom = dayOverflows ? frame.maxY - monthTop - previewContentHeight : frame.minY + padding
-                let visibleHeight = max(0, min(height, previewTop - visibleBottom))
-                if !task.isCompleted && visibleHeight > 0 {
-                    result.append((task.id, NSRect(x: frame.minX, y: previewTop - visibleHeight, width: frame.width, height: visibleHeight)))
-                }
-                previewTop -= height
+            if !task.isCompleted {
+                result.append((task.id, NSRect(x: frame.minX, y: top - height,
+                                              width: frame.width, height: height)))
             }
-            // Scrolling overflow rows use native hover events instead of sampled coordinates.
-            if dayOverflows && dayExpanded && index >= overflowStartIndex && overflowHeight <= overflowViewportHeight + 0.5 {
-                let visibleHeight = height - (index == overflowStartIndex ? previewOverflowOffset : 0)
-                if !task.isCompleted && overflowTop - visibleHeight >= frame.minY + padding {
-                    result.append((task.id, NSRect(x: frame.minX, y: overflowTop - visibleHeight, width: frame.width, height: visibleHeight)))
-                }
-                overflowTop -= visibleHeight
-            }
+            top -= height
         }
         return result
     }

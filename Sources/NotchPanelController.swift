@@ -72,7 +72,6 @@ final class NotchPanelController: ObservableObject {
         static let display = "SandNotch.displayID"
         static let offset = "SandNotch.horizontalOffset"
         static let menuBarIcon = "Glitter.showMenuBarIcon"
-        static let alwaysShowToday = "Glitter.alwaysShowTodayOnHover"
     }
 
     private(set) var panel: NotchPanel
@@ -81,15 +80,12 @@ final class NotchPanelController: ObservableObject {
 
     var onDataChanged: (() -> Void)?
 
-    private var scrollLocalMonitor: Any?
     @Published private(set) var selectedDisplayID: CGDirectDisplayID?
     @Published private(set) var screens: [NSScreen]
     @Published private(set) var showsMenuBarIcon: Bool
-    @Published private(set) var alwaysShowsTodayOnHover: Bool
 
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
-    private var scrollMonitor: Any?
     private var collapseWork: DispatchWorkItem?
     // 依次表示 (中心 X, 顶边)、(宽, 高)、(展开进度, 月视图进度)。
     private typealias MotionPair = AnimatablePair<Double, Double>
@@ -101,7 +97,7 @@ final class NotchPanelController: ObservableObject {
         let started: CFTimeInterval
         let duration: TimeInterval
     }
-    private static let motionDuration: TimeInterval = 0.14
+    private static let motionDuration: TimeInterval = 0.10
     private static let expansionDuration: TimeInterval = 0.12
     private let displayLinkTarget = AnimationDisplayLinkTarget()
     private var animationDisplayLink: CADisplayLink?
@@ -112,16 +108,10 @@ final class NotchPanelController: ObservableObject {
     private let renderCache = PanelRenderCache()
     private var snapshotLayer: PanelSnapshotLayer!
     private var headerHosting: NSHostingView<PanelHeaderView>!
-    private var footerHosting: NSHostingView<PanelFooterView>!
     private var snapshotWork: DispatchWorkItem?
     private var pendingDataChange = false
     private var pointerGlobalMonitor: Any?
     private let defaults: UserDefaults
-    private var scrollVerticalDistance: CGFloat = 0
-    private var scrollHorizontalDistance: CGFloat = 0
-    private var scrollGestureHandled = false
-    private var panelScrollActive = false
-    private var scrollStartedInOverflow = false
 
     private var isDragging = false
     private var lastDragEndedAt = Date.distantPast
@@ -132,7 +122,6 @@ final class NotchPanelController: ObservableObject {
         self.store = store
         self.defaults = defaults
         showsMenuBarIcon = defaults.object(forKey: Keys.menuBarIcon) as? Bool ?? true
-        alwaysShowsTodayOnHover = defaults.object(forKey: Keys.alwaysShowToday) as? Bool ?? false
         let availableScreens = NSScreen.screens
         screens = availableScreens
         let savedDisplayID = defaults.object(forKey: Keys.display) == nil
@@ -192,16 +181,12 @@ final class NotchPanelController: ObservableObject {
         surfaceView.addSubview(hosting)
         snapshotLayer = PanelSnapshotLayer(surface: surfaceView, hosting: hosting)
         headerHosting = NSHostingView(rootView: PanelHeaderView(store: store, state: state))
-        footerHosting = NSHostingView(rootView: PanelFooterView(store: store, state: state))
-        for overlay in [headerHosting as NSView, footerHosting as NSView] {
-            overlay.wantsLayer = true
-            overlay.layer?.zPosition = 20
-            surfaceView.addSubview(overlay)
-        }
+        headerHosting.wantsLayer = true
+        headerHosting.layer?.zPosition = 20
+        surfaceView.addSubview(headerHosting)
         headerHosting.sizingOptions = []
-        footerHosting.sizingOptions = []
         surfaceView.applyVisibleFrame(surfaceView.bounds, corner: state.cornerRadius)
-        layoutPersistentControls(frame: surfaceView.bounds, expansion: 0, month: state.monthProgress)
+        layoutHeader(frame: surfaceView.bounds)
         renderCache.prepare(store: store, state: state)
         surfaceView.onPointerChanged = { [weak self] in self?.pollCursor() }
 
@@ -212,16 +197,11 @@ final class NotchPanelController: ObservableObject {
         state.onTogglePinned = { [weak self] in self?.togglePinned() }
         state.onSelectDay = { [weak self] in self?.selectMode("today") }
         state.onSelectMonth = { [weak self] in self?.selectMode("month") }
-        state.onToggleDay = { [weak self] in
-            guard let self, self.state.expanded, self.acceptsClick else { return }
-            self.setDayExpanded(!self.state.dayExpanded)
-        }
         state.onDragChanged = { [weak self] in self?.dragChanged() }
         state.onDragEnded = { [weak self] in self?.dragEnded() }
 
         store.onUpdate = { [weak self] in self?.dataChanged() }
         startHoverWatch()
-        startScrollWatch()
         observeScreens()
 
     }
@@ -232,8 +212,6 @@ final class NotchPanelController: ObservableObject {
         collapseWork?.cancel()
         snapshotWork?.cancel()
         if let pointerGlobalMonitor { NSEvent.removeMonitor(pointerGlobalMonitor) }
-        if let monitor = scrollLocalMonitor { NSEvent.removeMonitor(monitor) }
-        if let monitor = scrollMonitor { NSEvent.removeMonitor(monitor) }
         if let observer = screenObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
@@ -244,18 +222,13 @@ final class NotchPanelController: ObservableObject {
 
     // MARK: - 展开 / 收起
 
-    func expand(mode: String? = nil) {
+    func expand() {
         guard !state.expanded else { return }
         cancelScheduledCollapse()
-        if let mode { store.setExpandedMode(mode) }
+        store.setExpandedMode("today")
         state.expanded = true
         updateWindowFrame(expanded: true, animated: true)
         show()
-    }
-
-    private func expandForHover(at point: NSPoint) {
-        let mode = alwaysShowsTodayOnHover || point.x < interactionFrame.midX ? "today" : "month"
-        expand(mode: mode)
     }
 
     func collapse() {
@@ -265,7 +238,6 @@ final class NotchPanelController: ObservableObject {
         state.headerHovered = false
         state.blockHovered = false
         state.hoveredTaskID = nil
-        state.toggleHovered = false
         updateWindowFrame(expanded: false, animated: true)
     }
 
@@ -276,6 +248,10 @@ final class NotchPanelController: ObservableObject {
 
         let start = presentedVector ?? Self.vector(rect: panel.frame, expansion: state.expansionProgress, month: state.monthProgress)
         let velocity = motion.map { Self.motionVelocity($0, elapsed: animationElapsed) } ?? .zero
+        // Preserve the visible scroll position when the Day page leaves the screen.
+        let sourceDay = !snapshotLayer.isVisible && state.geometry.dayScrolls
+            && start.second.second.first > 0.999 && start.second.second.second < 0.001
+            ? snapshotLayer.captureLive(headerHeight: state.geometry.collapsedHeight) : nil
         stopAnimation(flushUpdates: false)
         guard animated, currentScreen != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               start != target else {
@@ -285,14 +261,11 @@ final class NotchPanelController: ObservableObject {
         }
 
         presentedVector = start
-        let shrinkingDay = !state.geometry.showingMonth && start.second.second.second < 0.001
-            && presentationRect(start).height > state.geometry.expandedHeight + 0.5
-        let expandedDay = state.geometry.dayOverflows && (state.dayExpanded || shrinkingDay)
-        if let day = renderCache.snapshot(page: expandedDay ? .expandedDay : .day, store: store, state: state),
+        if let day = renderCache.snapshot(page: .day, store: store, state: state),
            let month = renderCache.snapshot(page: .month, store: store, state: state) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            snapshotLayer.show(day: day, month: month)
+            snapshotLayer.show(day: sourceDay ?? day, month: month)
             surfaceView.blocksContentInput = true
             // Prepare the hidden destination once, so the final frame only restores it.
             withTransaction(Transaction(animation: nil)) {
@@ -300,13 +273,19 @@ final class NotchPanelController: ObservableObject {
                               month: store.expandedMode == "month" ? 1 : 0)
             }
             snapshotLayer.prepareLive(size: presentationRect(target).size)
+            // The retained ScrollView can be below its initial offset. Capture its prepared
+            // viewport so the animation and the live handoff show the same rows.
+            if expanded, !state.geometry.showingMonth, state.geometry.dayScrolls,
+               let scrolledDay = snapshotLayer.captureLive(headerHeight: state.geometry.collapsedHeight) {
+                snapshotLayer.show(day: scrolledDay, month: month)
+            }
             let animationBounds = presentationRect(start).union(presentationRect(target))
             panel.setFrame(animationBounds, display: false)
             let visible = presentationRect(start).offsetBy(dx: -animationBounds.minX, dy: -animationBounds.minY)
             let collapsed: CGFloat = state.geometry.hasNotch ? 12 : 16
             snapshotLayer.layout(frame: visible, monthProgress: start.second.second.second)
             surfaceView.applyVisibleFrame(visible, corner: collapsed + (26 - collapsed) * start.second.second.first)
-            layoutPersistentControls(frame: visible, expansion: start.second.second.first, month: start.second.second.second)
+            layoutHeader(frame: visible)
             surfaceView.visibleContentRect = visible
             panel.ignoresMouseEvents = !presentationRect(start).contains(NSEvent.mouseLocation)
             CATransaction.commit()
@@ -324,12 +303,15 @@ final class NotchPanelController: ObservableObject {
             }
         }
         // 窗口的 displayLink 会自动跟随显示器变化，回调只在动画期间启用。
-        let link = panel.displayLink(target: displayLinkTarget, selector: #selector(AnimationDisplayLinkTarget.tick(_:)))
+        let link = animationDisplayLink ?? panel.displayLink(target: displayLinkTarget, selector: #selector(AnimationDisplayLinkTarget.tick(_:)))
         let screenRate = currentScreen?.maximumFramesPerSecond ?? 60
         let maximum = Float(screenRate > 0 ? screenRate : 60)
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        animationDisplayLink = link
-        link.add(to: .main, forMode: .common)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: maximum, maximum: maximum, preferred: maximum)
+        if animationDisplayLink == nil {
+            animationDisplayLink = link
+            link.add(to: .main, forMode: .common)
+        }
+        link.isPaused = false
     }
 
     private func advanceAnimation(at timestamp: CFTimeInterval) {
@@ -376,8 +358,7 @@ final class NotchPanelController: ObservableObject {
     }
 
     private func stopAnimation(flushUpdates: Bool = true) {
-        animationDisplayLink?.invalidate()
-        animationDisplayLink = nil
+        animationDisplayLink?.isPaused = true
         motion = nil
         animationElapsed = 0
         if flushUpdates { finishPresentation() }
@@ -442,32 +423,27 @@ final class NotchPanelController: ObservableObject {
             let visible = rect.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
             snapshotLayer.layout(frame: visible, monthProgress: month)
             surfaceView.applyVisibleFrame(visible, corner: corner)
-            layoutPersistentControls(frame: visible, expansion: expansion, month: month)
+            layoutHeader(frame: visible)
             surfaceView.visibleContentRect = visible
             panel.ignoresMouseEvents = !rect.contains(NSEvent.mouseLocation)
         } else {
+            let contentWasPrepared = snapshotLayer.isVisible
             panel.setFrame(rect, display: false)
             withTransaction(Transaction(animation: nil)) {
                 state.present(size: rect.size, expansion: expansion, month: month)
             }
             snapshotLayer.hide(size: rect.size)
             surfaceView.applyVisibleFrame(surfaceView.bounds, corner: corner)
-            layoutPersistentControls(frame: surfaceView.bounds, expansion: expansion, month: month)
-            surfaceView.layoutSubtreeIfNeeded()
+            layoutHeader(frame: surfaceView.bounds)
+            if !contentWasPrepared { surfaceView.layoutSubtreeIfNeeded() }
         }
         CATransaction.commit()
     }
 
-    private func layoutPersistentControls(frame: NSRect, expansion: CGFloat, month: CGFloat) {
-        let g = state.geometry
-        let headerRect = NSRect(x: frame.minX, y: frame.maxY - g.collapsedHeight,
-                                width: frame.width, height: g.collapsedHeight)
-        if headerHosting.frame != headerRect { headerHosting.frame = headerRect }
-        let footerRect = NSRect(x: frame.minX - g.expandedWidth * month,
-                                y: frame.maxY - g.toggleTop - g.footerHeight,
-                                width: frame.width, height: g.footerHeight)
-        if footerHosting.frame != footerRect { footerHosting.frame = footerRect }
-        footerHosting.isHidden = !g.dayOverflows || expansion <= 0 || month >= 1
+    private func layoutHeader(frame: NSRect) {
+        let height = state.geometry.collapsedHeight
+        let rect = NSRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height)
+        if headerHosting.frame != rect { headerHosting.frame = rect }
     }
 
     func togglePinned() {
@@ -484,13 +460,6 @@ final class NotchPanelController: ObservableObject {
         guard visible != showsMenuBarIcon else { return }
         showsMenuBarIcon = visible
         defaults.set(visible as Any, forKey: Keys.menuBarIcon)
-        onDataChanged?()
-    }
-
-    func setAlwaysShowTodayOnHover(_ enabled: Bool) {
-        guard enabled != alwaysShowsTodayOnHover else { return }
-        alwaysShowsTodayOnHover = enabled
-        defaults.set(enabled as Any, forKey: Keys.alwaysShowToday)
         onDataChanged?()
     }
 
@@ -525,14 +494,6 @@ final class NotchPanelController: ObservableObject {
 
     private var acceptsClick: Bool {
         !isDragging && Date().timeIntervalSince(lastDragEndedAt) > 0.15
-    }
-
-    private func setDayExpanded(_ expanded: Bool) {
-        guard state.geometry.dayOverflows, !state.geometry.showingMonth, state.dayExpanded != expanded else { return }
-        cancelScheduledCollapse()
-        state.dayExpanded = expanded
-        state.geometry.dayExpanded = expanded
-        updateWindowFrame(expanded: true, animated: true)
     }
 
     private func selectMode(_ mode: String) {
@@ -584,30 +545,25 @@ final class NotchPanelController: ObservableObject {
         guard !isDragging else {
             state.headerHovered = false
             state.hoveredTaskID = nil
-            state.toggleHovered = false
             return
         }
         let g = state.geometry
         let visibleFrame = interactionFrame
+        let hovered = state.expanded && g.headerInteractionRect(in: visibleFrame).contains(point)
+        let blockHovered = state.expanded && g.blockInteractionRect(in: visibleFrame).contains(point)
+        if state.headerHovered != hovered { state.headerHovered = hovered }
+        if state.blockHovered != blockHovered { state.blockHovered = blockHovered }
         if motion != nil {
             panel.ignoresMouseEvents = !visibleFrame.contains(point)
             if state.expanded && !state.pinned {
                 if visibleFrame.insetBy(dx: -2, dy: -2).contains(point) { cancelScheduledCollapse() }
                 else { scheduleCollapse() }
-            } else if !state.expanded && visibleFrame.contains(point) { expandForHover(at: point) }
+            } else if !state.expanded && visibleFrame.contains(point) { expand() }
             return
         }
-        let hovered = state.expanded && store.hasStatistics && g.headerInteractionRect(in: visibleFrame).contains(point)
-        if state.headerHovered != hovered { state.headerHovered = hovered }
-        let blockHovered = state.expanded && g.blockInteractionRect(in: visibleFrame).contains(point)
-        if state.blockHovered != blockHovered { state.blockHovered = blockHovered }
         let taskHovered = state.expanded && store.canCompleteTasks && !store.isMutating
             ? g.taskInteractionRects(tasks: store.presentationTasks, in: visibleFrame).first(where: { $0.rect.contains(point) })?.id : nil
         if state.hoveredTaskID != taskHovered { state.hoveredTaskID = taskHovered }
-
-        let insideOutline = surfaceView.containsVisiblePoint(NSPoint(x: point.x - panel.frame.minX, y: point.y - panel.frame.minY))
-        let toggleHovered = insideOutline && state.expanded && !g.showingMonth && g.dayOverflows && g.toggleInteractionRect(in: visibleFrame).contains(point)
-        if state.toggleHovered != toggleHovered { state.toggleHovered = toggleHovered }
 
         if state.expanded {
             guard !state.pinned else { return }
@@ -617,7 +573,7 @@ final class NotchPanelController: ObservableObject {
                 scheduleCollapse()
             }
         } else if (state.expansionProgress > 0 ? visibleFrame : g.hotZone).contains(point) {
-            expandForHover(at: point)
+            expand()
         }
     }
 
@@ -635,72 +591,6 @@ final class NotchPanelController: ObservableObject {
     private func cancelScheduledCollapse() {
         collapseWork?.cancel()
         collapseWork = nil
-    }
-
-    // MARK: - 横向手势切换 Day / Month
-
-    private func startScrollWatch() {
-        scrollLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            let consumed = MainActor.assumeIsolated { self?.handleScrollEvent(event) ?? false }
-            return consumed ? nil : event
-        }
-        scrollMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            MainActor.assumeIsolated { _ = self?.handleScrollEvent(event) }
-        }
-    }
-
-    private func handleScrollEvent(_ event: NSEvent) -> Bool {
-        handleScroll(phase: event.phase, momentum: event.momentumPhase,
-                     deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
-                     precise: event.hasPreciseScrollingDeltas, inverted: event.isDirectionInvertedFromDevice,
-                     point: NSEvent.mouseLocation)
-    }
-
-    private func resetScrollGesture() {
-        scrollVerticalDistance = 0
-        scrollHorizontalDistance = 0
-        scrollGestureHandled = false
-        panelScrollActive = false
-        scrollStartedInOverflow = false
-    }
-
-    private func handleScroll(phase: NSEvent.Phase, momentum: NSEvent.Phase,
-                              deltaX: CGFloat, deltaY: CGFloat, precise: Bool, inverted: Bool, point: NSPoint) -> Bool {
-        guard precise, !phase.isEmpty else { return false }
-        let hitArea = interactionFrame
-        if phase.contains(.began) {
-            resetScrollGesture()
-            panelScrollActive = state.expanded && store.hasStatistics && !isDragging && hitArea.contains(point)
-            let g = state.geometry
-            scrollStartedInOverflow = g.dayExpanded && g.overflowHeight > g.overflowViewportHeight + 0.5
-                && point.y < hitArea.maxY - g.toggleTop - g.footerHeight
-        }
-        if phase.contains(.ended) || phase.contains(.cancelled) {
-            let consumed = scrollGestureHandled
-            resetScrollGesture()
-            return consumed
-        }
-        guard state.expanded, store.hasStatistics, !isDragging, panelScrollActive, momentum.isEmpty else { return false }
-        // 一次手势只切换一次，面板缩小后仍消费本次手势的剩余事件。
-        if scrollGestureHandled { return true }
-        guard hitArea.contains(point) else {
-            resetScrollGesture()
-            return false
-        }
-        scrollVerticalDistance += inverted ? deltaY : -deltaY
-        // Natural scrolling reports a leftward push as negative deltaX.
-        scrollHorizontalDistance += inverted ? deltaX : -deltaX
-        if abs(scrollHorizontalDistance) >= 18 && abs(scrollHorizontalDistance) > abs(scrollVerticalDistance) * 1.4 {
-            scrollGestureHandled = true
-            store.setExpandedMode(scrollHorizontalDistance < 0 ? "month" : "today")
-            return true
-        }
-        guard !state.geometry.showingMonth, state.geometry.dayOverflows, !scrollStartedInOverflow,
-              abs(scrollVerticalDistance) >= 12,
-              abs(scrollVerticalDistance) > abs(scrollHorizontalDistance) * 1.4 else { return false }
-        scrollGestureHandled = true
-        setDayExpanded(scrollVerticalDistance > 0)
-        return true
     }
 
     // MARK: - 屏幕 / 数据变化
@@ -767,7 +657,6 @@ final class NotchPanelController: ObservableObject {
         } else {
             geometry.measureMessage(store.panelMessage)
         }
-        geometry.dayExpanded = state.dayExpanded
         if isDragging {
             geometry.horizontalOffset = geometry.clampedOffset(offset)
         }

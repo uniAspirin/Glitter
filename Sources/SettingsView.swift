@@ -87,12 +87,6 @@ struct SettingsView: View {
             ))
             .padding(.top, 12)
 
-            switchRow("Always Show Today on Hover", isOn: Binding(
-                get: { controller.alwaysShowsTodayOnHover },
-                set: { controller.setAlwaysShowTodayOnHover($0) }
-            ))
-            .padding(.top, 12)
-
             Divider().padding(.vertical, 18)
             title("Startup")
             switchRow("Launch at Login", isOn: Binding(

@@ -7,10 +7,10 @@ struct PanelSnapshot {
     let headerHeight: CGFloat
 }
 
-/// Session-local Retina snapshots. Data and display changes invalidate all three pages.
+/// Session-local Retina snapshots. Data and display changes invalidate both pages.
 @MainActor
 final class PanelRenderCache {
-    enum Page: CaseIterable { case day, expandedDay, month }
+    enum Page: CaseIterable { case day, month }
     private var geometry: NotchGeometry?
     private var images: [Page: PanelSnapshot] = [:]
 
@@ -18,7 +18,6 @@ final class PanelRenderCache {
 
     func prepare(store: TaskStore, state: PanelState) {
         for page in Page.allCases {
-            if page == .expandedDay && !state.geometry.dayOverflows { continue }
             _ = snapshot(page: page, store: store, state: state)
         }
     }
@@ -26,7 +25,6 @@ final class PanelRenderCache {
     func snapshot(page: Page, store: TaskStore, state: PanelState) -> PanelSnapshot? {
         var key = state.geometry
         key.showingMonth = false
-        key.dayExpanded = false
         key.horizontalOffset = 0
         if geometry != key {
             geometry = key
@@ -41,12 +39,10 @@ final class PanelRenderCache {
     private func render(page: Page, store: TaskStore, geometry: NotchGeometry) -> PanelSnapshot? {
         var full = geometry
         full.showingMonth = page == .month
-        full.dayExpanded = page == .expandedDay
         let size = CGSize(width: full.expandedWidth, height: full.expandedHeight)
         guard size.height > full.collapsedHeight else { return nil }
         let rendering = PanelState(geometry: full, mode: full.showingMonth ? "month" : "today")
         rendering.expanded = true
-        rendering.dayExpanded = full.dayExpanded
         rendering.present(size: size, expansion: 1, month: full.showingMonth ? 1 : 0)
         let view = NotchPanelView(store: store, state: rendering)
             .environment(\.displayScale, full.displayScale)
@@ -103,6 +99,21 @@ final class PanelSnapshotLayer {
     func prepareLive(size: CGSize) {
         hosting?.frame = NSRect(origin: .zero, size: size)
         hosting?.layoutSubtreeIfNeeded()
+    }
+
+    func captureLive(headerHeight: CGFloat) -> PanelSnapshot? {
+        guard let hosting, hosting.bounds.height > headerHeight,
+              let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        let hidden = hosting.isHidden
+        hosting.isHidden = false
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        hosting.isHidden = hidden
+        guard let image = bitmap.cgImage else { return nil }
+        let scale = CGFloat(image.width) / hosting.bounds.width
+        let headerPixels = Int(round(headerHeight * scale))
+        guard let body = image.cropping(to: CGRect(x: 0, y: headerPixels,
+                                                  width: image.width, height: image.height - headerPixels)) else { return nil }
+        return PanelSnapshot(body: body, size: hosting.bounds.size, headerHeight: headerHeight)
     }
 
     func layout(frame: NSRect, monthProgress: CGFloat) {

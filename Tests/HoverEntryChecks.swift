@@ -1,7 +1,7 @@
 import AppKit
 
 extension NotchPanelController {
-    static func checkHoverEntry() {
+    static func checkHoverEntry() async {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) {
             precondition(value(), message)
@@ -27,116 +27,100 @@ extension NotchPanelController {
             finish()
         }
         func entry(_ offset: CGFloat) -> NSPoint {
-            let frame = c.state.geometry.collapsedRect
-            return NSPoint(x: frame.midX + offset, y: frame.midY)
+            let rect = c.state.geometry.collapsedRect
+            return NSPoint(x: rect.midX + offset, y: rect.midY)
         }
-
-        check(!c.alwaysShowsTodayOnHover, "Directional hover is the default")
         close(on: "month")
         let cachedDay = c.renderCache.snapshot(page: .day, store: store, state: c.state)
         let cachedMonth = c.renderCache.snapshot(page: .month, store: store, state: c.state)
-        check(cachedDay != nil && cachedMonth != nil, "Both pages are prepared before hover entry")
+        check(cachedDay != nil && cachedMonth != nil, "Both pages are cached before entering")
         var menuUpdates = 0
         c.onDataChanged = { menuUpdates += 1 }
         var taskUpdates = 0
-        let taskSubscription = store.objectWillChange.sink { taskUpdates += 1 }
-        c.pollCursor(at: entry(-0.25))
-        check(c.state.expanded && store.expandedMode == "today", "Entry immediately left of center opens Today")
-        check(c.state.monthProgress == 0, "Left entry prepares Today before expansion begins")
-        check(c.motion?.start.second.second.second == c.motion?.target.second.second.second,
-              "Opening another page selects it before the vertical animation")
-        c.pollCursor(at: entry(1))
-        check(store.expandedMode == "today", "Crossing the center during opening does not switch pages")
-        finish()
-        c.pollCursor(at: entry(1))
-        check(store.expandedMode == "today", "Crossing the center while expanded keeps the selected page")
-
-        close(on: "today")
-        c.pollCursor(at: entry(0.25))
-        check(c.state.expanded && store.expandedMode == "month", "Entry immediately right of center opens Month")
-        check(c.state.monthProgress == 1, "Right entry prepares Month without flashing Today first")
-        finish()
-        check(menuUpdates == 0, "Selecting the hover page does not rebuild the unrelated menu")
-        check(taskUpdates == 0, "Selecting pages only updates presentation rather than publishing task-data changes")
-        taskSubscription.cancel()
+        let subscription = store.objectWillChange.sink { taskUpdates += 1 }
+        for offset in [-120.0, -0.25, 0.0, 0.25, 120.0] {
+            close(on: "month")
+            c.pollCursor(at: entry(offset))
+            check(c.state.expanded && store.expandedMode == "today", "Every entry position opens Today")
+            check(c.state.monthProgress == 0, "Month is hidden before the opening begins")
+            check(c.motion?.start.second.second.second == c.motion?.target.second.second.second,
+                  "Opening Today does not slide from the remembered Month")
+            finish()
+        }
+        check(menuUpdates == 0 && taskUpdates == 0, "Opening pages does not publish task changes or rebuild menus")
+        subscription.cancel()
         check(c.renderCache.snapshot(page: .day, store: store, state: c.state)?.body === cachedDay?.body
               && c.renderCache.snapshot(page: .month, store: store, state: c.state)?.body === cachedMonth?.body,
-              "Alternating hover entry reuses both original page images")
-        close(on: "today")
-        c.pollCursor(at: entry(0))
-        finish()
-        check(store.expandedMode == "month", "The exact center belongs to the right half")
-
-        c.setAlwaysShowTodayOnHover(true)
-        check(c.alwaysShowsTodayOnHover && defaults.object(forKey: "Glitter.alwaysShowTodayOnHover") as? Bool == true,
-              "The Today option is persisted")
-        check(store.expandedMode == "month", "Changing the option waits for the next hover entry")
-        close(on: "month")
-        c.pollCursor(at: entry(30))
-        finish()
-        check(store.expandedMode == "today", "The Today option overrides entry from the right")
+              "Repeated Today openings reuse both cached pages")
+        c.state.pinned = true
+        let right = c.state.geometry.blockInteractionRect(in: c.panel.frame)
+        let left = c.state.geometry.headerInteractionRect(in: c.panel.frame)
+        c.pollCursor(at: NSPoint(x: right.midX, y: right.midY))
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        check(store.expandedMode == "today" && c.state.blockHovered, "Cube hover highlights without switching")
         c.state.onSelectMonth?()
         finish()
-        check(store.expandedMode == "month", "Manual Month navigation still works with the Today option enabled")
-        c.pollCursor(at: entry(-30))
-        check(store.expandedMode == "month", "The option applies to entry rather than ongoing pointer motion")
-        close(on: "month")
-        c.forceExpandedForDebug()
+        check(store.expandedMode == "month", "Clicking the cube opens Month")
+        c.pollCursor(at: NSPoint(x: left.midX, y: left.midY))
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        check(store.expandedMode == "month" && c.state.headerHovered, "Score hover does not change Month")
+        c.state.onSelectDay?()
         finish()
-        check(c.state.pinned && store.expandedMode == "month", "Programmatic pinning preserves the manually selected page")
-        let restored = NotchPanelController(store: TaskStore.todayFixture().0, defaults: defaults)
-        restored.hoverTimer?.invalidate()
-        defer { restored.panel.orderOut(nil) }
-        check(restored.alwaysShowsTodayOnHover, "The Today option survives relaunch")
+        check(store.expandedMode == "today", "Clicking the score returns to Today")
 
-        c.setAlwaysShowTodayOnHover(false)
-        close(on: "today")
-        c.pollCursor(at: entry(20))
+        c.state.onSelectMonth?()
         finish()
-        check(store.expandedMode == "month", "Disabling the option restores directional entry")
+        c.state.pinned = false
         c.collapse()
         if let motion = c.motion { c.advanceAnimation(at: motion.started + motion.duration * 0.4) }
         let before = c.interactionFrame
-        c.pollCursor(at: NSPoint(x: before.midX - 1, y: before.maxY - 10))
-        check(c.state.expanded && store.expandedMode == "today", "Re-entry during collapse selects the new entry side")
-        check(c.interactionFrame == before, "Reversing collapse preserves the current visible frame")
+        c.pollCursor(at: NSPoint(x: before.maxX - 2, y: before.maxY - 10))
+        check(c.state.expanded && store.expandedMode == "today", "Right-side re-entry during collapse opens Today")
+        check(c.interactionFrame == before, "Reversing collapse preserves the currently visible frame")
         finish()
-        check(c.state.monthProgress == 0, "Re-entry settles on the requested page")
+        check(c.state.monthProgress == 0, "Interrupted collapse settles on Today")
 
         close(on: "month")
         c.isDragging = true
         c.pollCursor(at: entry(-20))
-        check(!c.state.expanded && store.expandedMode == "month", "Dragging does not trigger directional hover")
+        check(!c.state.expanded, "Dragging does not trigger expansion")
         c.isDragging = false
         c.state.geometry.horizontalOffset = c.state.geometry.settledOffset(400)
         c.refreshGeometry()
-        check(c.state.geometry.collapsedWidth < c.state.geometry.expandedWidth, "Off-notch fixture uses the compact header")
-        c.pollCursor(at: entry(-1))
+        c.pollCursor(at: entry(1))
         finish()
-        check(store.expandedMode == "today", "Off-notch hover uses the moved panel's center")
-        close(on: "today")
+        check(store.expandedMode == "today", "Off-notch entry also opens Today")
+        close(on: "month")
         c.screensChanged([TestScreen(id: 2002, frame: NSRect(x: 1440, y: 0, width: 1920, height: 1080))])
         c.pollCursor(at: entry(1))
         finish()
-        check(store.expandedMode == "month", "External-display hover uses that panel's center")
+        check(store.expandedMode == "today", "External-display entry opens Today")
+        close(on: "month")
+        c.forceExpandedForDebug()
+        finish()
+        check(c.state.pinned && store.expandedMode == "today", "Pinning a closed panel starts with Today")
+        c.state.onSelectMonth?()
+        finish()
+        c.expand()
+        check(store.expandedMode == "month", "An already open Month stays visible until closed or explicitly changed")
 
+        for legacyValue in [false, true] {
+            let legacy = MemoryDefaults()
+            legacy.set(legacyValue, forKey: "Glitter.alwaysShowTodayOnHover")
+            let restored = NotchPanelController(store: TaskStore.todayFixture().0, defaults: legacy)
+            restored.hoverTimer?.invalidate()
+            restored.expand()
+            check(restored.store.expandedMode == "today", "Legacy hover settings do not change the new default")
+            restored.stopAnimation()
+            restored.panel.orderOut(nil)
+        }
         let previousDay = c.renderCache.snapshot(page: .day, store: store, state: c.state)
         let previousMonth = c.renderCache.snapshot(page: .month, store: store, state: c.state)
         store.fixtureTasks(count: 5, completed: 3)
         finish()
         check(c.renderCache.snapshot(page: .day, store: store, state: c.state)?.body !== previousDay?.body
               && c.renderCache.snapshot(page: .month, store: store, state: c.state)?.body !== previousMonth?.body,
-              "Changed task data replaces both cached pages")
-
-        let demoDefaults = DemoDefaults()
-        let demo = NotchPanelController(store: TaskStore.todayFixture().0, defaults: demoDefaults)
-        demo.hoverTimer?.invalidate()
-        defer { demo.panel.orderOut(nil) }
-        demo.setAlwaysShowTodayOnHover(true)
-        check(demoDefaults.object(forKey: "Glitter.alwaysShowTodayOnHover") as? Bool == true,
-              "Demo keeps the Today option in its in-memory settings")
-        check(DemoDefaults().object(forKey: "Glitter.alwaysShowTodayOnHover") == nil,
-              "A new Demo session has isolated hover preferences")
-        print("PASS \(count) directional hover, preference and animation-reversal checks")
+              "Changed task data refreshes both cached pages")
+        print("PASS \(count) Today-only hover, cube navigation and cache checks")
     }
 }

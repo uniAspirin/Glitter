@@ -1,3 +1,29 @@
+# Glitter 1.2
+
+## English
+
+- Every hover expansion opens Today, including re-entry while the panel is closing.
+- Click the top-right cube for Month and the score to return to Today.
+- Simplified Settings and menu bar options. View navigation uses the header buttons.
+- Day fits its task content up to the Month height and scrolls for longer lists, with aligned text and overlay scrollbars.
+- Page transitions take 100 ms and preserve the Day scroll position. Cached pages and paused display callbacks reduce repeated work.
+
+Validated with 669 automated checks using fictional tasks.
+
+Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple.
+
+## 简体中文
+
+- 每次悬停展开都进入 Today，收起过程中重新移入也会回到 Today。
+- 点击右上角方块进入 Month，点击分数返回 Today。
+- 精简设置和菜单栏选项，视图通过顶部按钮切换。
+- Day 高度随任务内容变化，上限与 Month 一致。较长列表直接滚动，文字保持对齐，滚动条覆盖显示。
+- 页面切换动画为 100 ms，并保留 Day 的滚动位置。复用页面缓存，空闲时暂停刷新回调。
+
+通过 669 项假数据自动检查。
+
+支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。
+
 # Glitter 1.1.1
 
 ## English

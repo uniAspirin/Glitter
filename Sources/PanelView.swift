@@ -12,15 +12,12 @@ final class PanelState: ObservableObject {
     private(set) var expansionProgress: CGFloat = 0
     private(set) var monthProgress: CGFloat
     @Published var headerHovered = false
-    @Published var toggleHovered = false
     @Published var blockHovered = false
-    var dayExpanded = false
     @Published var hoveredTaskID: String?
 
     var onOpenSettings: (() -> Void)?
     var onSelectDay: (() -> Void)?
     var onSelectMonth: (() -> Void)?
-    var onToggleDay: (() -> Void)?
     var onTogglePinned: (() -> Void)?
     var onDragChanged: (() -> Void)?
     var onDragEnded: (() -> Void)?
@@ -57,7 +54,6 @@ struct NotchPanelView: View {
     private var monthGeometry: NotchGeometry {
         var geometry = g
         geometry.showingMonth = true
-        geometry.dayExpanded = false
         return geometry
     }
     @Namespace private var taskMovement
@@ -127,51 +123,55 @@ struct NotchPanelView: View {
         .clipped()
     }
 
-    private var overflowTasks: some View {
+    private var tasksContent: some View {
         TodayContent(store: store, geometry: dayGeometry,
-                     hoveredTaskID: g.overflowHeight > g.overflowViewportHeight + 0.5 ? nil : state.hoveredTaskID,
-                     tasks: Array(store.presentationTasks.dropFirst(g.overflowStartIndex)),
-                     contentHeight: g.overflowHeight, showsMessages: true, taskMovement: taskMovement,
-                     leadingClip: g.previewOverflowOffset, splitTaskID: splitTaskID)
-    }
-
-    private var splitTaskID: String? {
-        g.previewOverflowOffset > 0 && store.presentationTasks.indices.contains(g.overflowStartIndex)
-            ? store.presentationTasks[g.overflowStartIndex].id : nil
+                     hoveredTaskID: g.dayScrolls ? nil : state.hoveredTaskID,
+                     taskMovement: taskMovement)
     }
 
     private var dayPage: some View {
-        VStack(spacing: 0) {
+        Group {
             if store.hasStatistics && !store.todayTasks.isEmpty {
-                TodayContent(store: store, geometry: dayGeometry, hoveredTaskID: state.hoveredTaskID,
-                             tasks: Array(store.presentationTasks.prefix(g.previewTaskCount)),
-                             contentHeight: g.dayOverflows ? g.previewContentHeight : g.todayContentHeight,
-                             showsMessages: !g.dayOverflows, taskMovement: taskMovement, splitTaskID: splitTaskID)
-                    .frame(height: g.dayPreviewHeight, alignment: .top)
-                    .clipped()
-                    .contentShape(Rectangle())
-                if g.dayOverflows {
-                    Color.clear.frame(height: g.footerHeight)
-                        .padding(.top, g.footerGap)
-                    if state.dayExpanded {
-                        Group {
-                            if g.overflowHeight > g.overflowViewportHeight + 0.5 {
-                                ScrollView(.vertical) { overflowTasks }
-                            } else {
-                                overflowTasks
-                            }
-                        }
-                        .frame(height: g.overflowViewportHeight, alignment: .top)
-                        .padding(.top, g.padding)
+                if g.dayScrolls {
+                    ScrollView(.vertical) {
+                        tasksContent.background(OverlayScrollbars())
                     }
+                } else {
+                    tasksContent
                 }
             } else {
-                message.frame(height: g.dayPreviewHeight, alignment: .topLeading)
+                message
             }
         }
-        .frame(width: g.expandedWidth, alignment: .top)
+        .frame(width: g.expandedWidth, height: g.dayViewportHeight, alignment: .top)
+        .clipped()
     }
 
+}
+
+private struct OverlayScrollbars: NSViewRepresentable {
+    func makeNSView(context: Context) -> ScrollbarStyleView { ScrollbarStyleView() }
+    func updateNSView(_ view: ScrollbarStyleView, context: Context) { view.configure() }
+
+    final class ScrollbarStyleView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            configure()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            configure()
+        }
+
+        func configure() {
+            guard let scroll = enclosingScrollView else { return }
+            if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
+            scroll.autohidesScrollers = true
+        }
+    }
 }
 
 struct PanelHeaderView: View {
@@ -270,26 +270,6 @@ struct PanelHeaderView: View {
 
 }
 
-struct PanelFooterView: View {
-    @ObservedObject var store: TaskStore
-    @ObservedObject var state: PanelState
-    var body: some View {
-        Button(action: { state.onToggleDay?() }) {
-            Image(systemName: state.dayExpanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white.opacity(state.toggleHovered ? 0.10 : 0))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { state.toggleHovered = state.expanded && $0 }
-        .help(state.dayExpanded ? "Collapse Day" : "Expand Day")
-        .accessibilityLabel(state.dayExpanded ? "Collapse Day" : "Expand Day")
-        .background(Color.black)
-        .contextMenu { PanelMenu(store: store, state: state) }
-    }
-}
-
 private struct PanelMenu: View {
     @ObservedObject var store: TaskStore
     @ObservedObject var state: PanelState
@@ -323,36 +303,24 @@ struct TodayContent: View {
     @ObservedObject var store: TaskStore
     let geometry: NotchGeometry
     var hoveredTaskID: String? = nil
-    var tasks: [TrackedTask]? = nil
-    var contentHeight: CGFloat? = nil
-    var showsMessages = true
-    private var displayedTasks: [TrackedTask] { tasks ?? store.presentationTasks }
     let taskMovement: Namespace.ID
-    var leadingClip: CGFloat = 0
-    var splitTaskID: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(displayedTasks.map { PresentedRow(id: store.rowAnimationID(for: $0), task: $0) }) { row in
+            ForEach(store.presentationTasks.map { PresentedRow(id: store.rowAnimationID(for: $0), task: $0) }) { row in
                 let task = row.task
                 let taskRow = TaskRow(task: task, rowHeight: geometry.taskHeight(task), horizontalPadding: geometry.horizontalPadding,
                               locked: store.isMutating || !store.canCompleteTasks,
                               saving: store.savingTaskID == task.id, sampledHover: hoveredTaskID == task.id) {
                     Task { await store.completeTask(task.id) }
                 }
-                Group {
-                    if task.id == splitTaskID {
-                        taskRow
-                    } else {
-                        taskRow.matchedGeometryEffect(id: row.id, in: taskMovement)
-                    }
-                }
+                taskRow.matchedGeometryEffect(id: row.id, in: taskMovement)
                 .opacity(store.movingTaskID == task.id ? 0 : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: store.movingTaskID == nil ? 0.10 : 0.06), value: store.movingTaskID)
                 .transition(.identity)
             }
-            if showsMessages && !store.todayTasks.isEmpty, let summary = store.presentationSummary {
+            if !store.todayTasks.isEmpty, let summary = store.presentationSummary {
                 Text(summary)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.gold.opacity(0.85))
@@ -362,8 +330,7 @@ struct TodayContent: View {
                     .padding(.trailing, geometry.horizontalPadding)
             }
         }
-        .offset(y: -leadingClip)
-        .frame(width: geometry.expandedWidth, height: contentHeight ?? geometry.todayContentHeight, alignment: .topLeading)
+        .frame(width: geometry.expandedWidth, height: geometry.todayContentHeight, alignment: .topLeading)
         .clipped()
         .contentShape(Rectangle())
         .animation(reduceMotion ? nil : .timingCurve(0.2, 0, 0, 1, duration: CompletionTiming.movement), value: store.presentationTasks)

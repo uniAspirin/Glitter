@@ -38,13 +38,6 @@ extension NotchPanelController {
             bitmap.getPixel(&pixel, atX: Int(x), y: Int(y))
             return pixel
         }
-        func swipe(dx: CGFloat, dy: CGFloat = 0, inverted: Bool = true, precise: Bool = true) {
-            let point = NSPoint(x: c.panel.frame.midX, y: c.panel.frame.maxY - 60)
-            _ = c.handleScroll(phase: .began, momentum: [], deltaX: 0, deltaY: 0, precise: precise, inverted: inverted, point: point)
-            _ = c.handleScroll(phase: .changed, momentum: [], deltaX: dx, deltaY: dy, precise: precise, inverted: inverted, point: point)
-            _ = c.handleScroll(phase: .ended, momentum: [], deltaX: 0, deltaY: 0, precise: precise, inverted: inverted, point: point)
-            finish()
-        }
         let reserved = NotchGeometry.make(for: builtIn, rows: 6, offset: 0, scoreText: "99/99")
         check(reserved.horizontalPadding == reserved.headerPadding, "Body and header share horizontal content insets")
         check(abs(reserved.gridOriginX - reserved.headerPadding) < 0.001,
@@ -76,9 +69,9 @@ extension NotchPanelController {
         var dayHeight = c.panel.frame.height
         capture("day")
         check(c.panel.frame.width == width && c.panel.frame.maxY == top, "Expansion preserves notch width and top edge")
-        check(!c.state.geometry.dayOverflows, "Short Day has no disclosure")
+        check(!c.state.geometry.dayScrolls, "Short Day has no disclosure")
         c.state.onSelectMonth?()
-        check(c.motion?.duration == 0.14, "Changing pages retains its existing motion duration")
+        check(c.motion?.duration == 0.10, "Changing pages takes 100ms")
         finish()
         check(store.expandedMode == "month", "Right block selects Month")
         check(c.panel.frame.height > dayHeight, "Short Day fits its content while Month retains calendar height")
@@ -124,18 +117,9 @@ extension NotchPanelController {
               "Right hover mirrors the inner lower rounded corner")
         c.pollCursor(at: NSPoint(x: c.panel.frame.midX, y: score.midY))
         check(!c.state.headerHovered && !c.state.blockHovered, "Notch gap does not highlight")
-        swipe(dx: -30)
-        check(store.expandedMode == "month", "Natural leftward push selects right-hand Month")
-        swipe(dx: 30)
-        check(store.expandedMode == "today", "Natural rightward push selects left-hand Day")
-        swipe(dx: -5, dy: 50)
-        check(store.expandedMode == "today", "Vertical gestures do not change page")
-        swipe(dx: -30, dy: 30)
-        check(store.expandedMode == "today", "Diagonal gestures do not accidentally change page")
-        swipe(dx: -50, precise: false)
-        check(store.expandedMode == "today", "Mouse wheel does not switch pages")
-        swipe(dx: 30, inverted: false)
-        check(store.expandedMode == "month", "Non-natural scroll setting preserves physical push direction")
+        c.state.onSelectMonth?()
+        finish()
+        check(store.expandedMode == "month", "The cube opens Month")
         c.collapse()
         check(c.motion?.duration == hoverDuration, "Hover collapse and expansion use the same duration")
         finish()
@@ -143,77 +127,66 @@ extension NotchPanelController {
         check(c.panel.frame.height == c.state.geometry.collapsedHeight, "Collapse settles at exact header height")
         c.expand()
         finish()
-        check(c.state.monthProgress == 1, "Re-expansion restores Month")
+        check(c.state.monthProgress == 0, "Re-expansion always starts with Today")
         c.state.onSelectDay?()
         finish()
         store.fixtureTasks(count: 1, completed: 0)
         finish()
         let singleHeight = c.panel.frame.height
-        check(singleHeight < dayHeight && !c.state.geometry.dayOverflows, "Single task uses a compact content-fitting Day")
-        store.fixtureTasks(count: 6, completed: 0)
-        finish()
-        check(!c.state.geometry.dayOverflows && c.state.geometry.previewTaskCount == 6, "Six single-line tasks fit without disclosure")
+        check(singleHeight < dayHeight && !c.state.geometry.dayScrolls, "Single task uses a compact content-fitting Day")
         store.fixtureTasks(count: 7, completed: 0)
         finish()
-        check(c.state.geometry.dayOverflows && c.state.geometry.previewTaskCount == 6, "Seventh single-line task reveals disclosure")
+        check(!c.state.geometry.dayScrolls, "Seven tasks fit directly when below the Month height")
+        check(c.panel.frame.height > singleHeight, "Day grows with its task content")
+        let rowTargets = c.state.geometry.taskInteractionRects(tasks: store.todayTasks, in: c.panel.frame)
+        check(rowTargets[0].rect.minY == rowTargets[1].rect.maxY, "Adjacent task hit regions meet without external margins")
+        let firstTarget = rowTargets[0]
+        check(firstTarget.rect.minX == c.panel.frame.minX && firstTarget.rect.width == c.panel.frame.width,
+              "Task hit area spans the full container width")
+        c.pollCursor(at: NSPoint(x: firstTarget.rect.minX + 1, y: firstTarget.rect.midY))
+        check(c.state.hoveredTaskID == firstTarget.id, "Task responds at the far left edge")
+        c.pollCursor(at: NSPoint(x: firstTarget.rect.maxX - 1, y: firstTarget.rect.midY))
+        check(c.state.hoveredTaskID == firstTarget.id, "Task responds at the far right edge")
         store.fixtureTasks(count: 12, completed: 3, longTitles: true)
         finish()
         let g = c.state.geometry
-        check(g.dayOverflows && g.previewTaskCount < store.todayTasks.count, "Long Day detects overflow")
-        dayHeight = g.expandedHeight
-        check(abs(c.panel.frame.height - dayHeight) <= 0.5, "Long Day initially uses fixed viewport")
-        swipe(dx: 0, dy: 30)
-        check(c.state.dayExpanded && store.expandedMode == "today", "Downward Day gesture expands overflow without opening Month")
-        swipe(dx: 0, dy: -30)
-        check(!c.state.dayExpanded && store.expandedMode == "today", "Upward Day gesture collapses overflow")
-        swipe(dx: 0, dy: 40, precise: false)
-        check(!c.state.dayExpanded, "Mouse wheel does not toggle Day overflow")
-        swipe(dx: 0, dy: -30, inverted: false)
-        check(c.state.dayExpanded, "Non-natural setting preserves downward expansion")
-        swipe(dx: 0, dy: 30, inverted: false)
-        check(!c.state.dayExpanded, "Non-natural setting preserves upward collapse")
-        let rowTargets = g.taskInteractionRects(tasks: store.todayTasks, in: c.panel.frame)
-        check(rowTargets[0].rect.minY == rowTargets[1].rect.maxY, "Adjacent task hit regions touch with no external gap")
-        check(g.taskHeight(store.todayTasks[0]) >= NotchGeometry.taskRowHeight + 5,
-              "Task target includes 2.5pt vertical padding on each side")
-        let previewFrame = c.panel.frame
-        let footerBand = g.toggleInteractionRect(in: previewFrame)
-        check(footerBand.minX == previewFrame.minX && footerBand.maxX == previewFrame.maxX,
-              "Disclosure fills container width")
-        check(abs(footerBand.minY - previewFrame.minY) < 0.01 && footerBand.height == 26,
-              "Preview disclosure occupies the bottom corner band with no bottom margin")
-        let firstTarget = g.taskInteractionRects(tasks: store.todayTasks, in: previewFrame)[0]
-        check(firstTarget.rect.minX == previewFrame.minX && firstTarget.rect.width == previewFrame.width,
-              "Task hit area spans the full container width")
-        c.pollCursor(at: NSPoint(x: firstTarget.rect.minX + 1, y: firstTarget.rect.midY))
-        check(c.state.hoveredTaskID == firstTarget.id, "Task responds at the far left container edge")
-        c.pollCursor(at: NSPoint(x: firstTarget.rect.maxX - 1, y: firstTarget.rect.midY))
-        check(c.state.hoveredTaskID == firstTarget.id, "Task responds at the far right container edge")
-        let toggle = g.toggleInteractionRect(in: c.panel.frame)
-        capture("long-collapsed")
-        c.state.onToggleDay?()
-        finish()
-        check(c.panel.frame.height > dayHeight, "Day disclosure reveals remaining tasks")
-        check(c.state.geometry.toggleInteractionRect(in: c.panel.frame) == toggle, "Disclosure stays at original screen position")
-        let expandedBand = c.state.geometry.toggleInteractionRect(in: c.panel.frame)
-        check(expandedBand.minY > c.panel.frame.minY + 26, "Expanded disclosure stays in original band above extra tasks")
-        c.pollCursor(at: NSPoint(x: expandedBand.minX + 1, y: expandedBand.midY))
-        check(c.state.toggleHovered, "Expanded disclosure is a full-width rectangular target")
-        capture("long-expanded")
+        check(g.dayScrolls && g.todayContentHeight > g.dayViewportHeight, "Long Day scrolls its full task list")
+        dayHeight = c.panel.frame.height
+        check(dayHeight == g.maximumExpandedHeight, "Long Day reaches exactly the Month height")
+        check(g.taskInteractionRects(tasks: store.todayTasks, in: c.panel.frame).isEmpty,
+              "Scrolling rows use native hover instead of stale sampled coordinates")
+        capture("long-scroll")
+        func findScrollView(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { findScrollView($0) }.first
+        }
+        let scrollView = findScrollView(c.surfaceView)
+        check(scrollView != nil, "Long Day contains a native scrolling viewport")
+        check(scrollView?.scrollerStyle == .overlay, "Scrolling does not reserve a gutter beside the tasks")
+        check(abs((scrollView?.contentView.bounds.width ?? 0) - c.state.geometry.expandedWidth) < 0.5,
+              "The scrolling list retains the same content width as short Day")
+        if let scrollView {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        let scrollOrigin = scrollView?.contentView.bounds.origin
+        capture("long-scrolled")
+        let currentDay = c.snapshotLayer.captureLive(headerHeight: g.collapsedHeight)!
         c.state.onSelectMonth?()
+        let bodyLayer = c.surfaceView.layer!.sublayers!.first { $0.zPosition == 10 }!.sublayers!.first!
+        let animatedDay = bodyLayer.contents as! CGImage
+        check(NSBitmapImageRep(cgImage: animatedDay).tiffRepresentation == NSBitmapImageRep(cgImage: currentDay.body).tiffRepresentation,
+              "The outgoing animation starts with the currently scrolled rows")
         finish()
-        check(abs(c.panel.frame.height - c.state.geometry.expandedHeight) <= 0.5, "Month uses its own calendar height after expanding Day")
+        check(c.panel.frame.height == dayHeight, "Month and capped Day have exactly equal height")
         c.state.onSelectDay?()
         finish()
-        check(c.state.dayExpanded && c.panel.frame.height > dayHeight, "Returning to Day restores its expansion state")
-        c.state.onToggleDay?()
-        finish()
-        c.pollCursor(at: NSPoint(x: toggle.midX, y: toggle.midY))
-        check(c.state.toggleHovered && c.collapseWork == nil, "Collapsing Day leaves pointer inside on the same button")
+        check(c.panel.frame.height == dayHeight, "Returning to long Day keeps the shared maximum height")
+        check(scrollView?.contentView.bounds.origin == scrollOrigin, "Page switching preserves the Day scroll position")
         store.fixtureTasks(count: 0, completed: 0)
         finish()
         dayHeight = c.state.geometry.expandedHeight
-        check(!c.state.geometry.dayOverflows && abs(c.panel.frame.height - dayHeight) <= 0.5, "Empty Day returns to default size")
+        check(!c.state.geometry.dayScrolls && abs(c.panel.frame.height - dayHeight) <= 0.5, "Empty Day returns to default size")
         capture("empty")
         store.loadDemoData()
         c.state.onSelectMonth?()
@@ -255,7 +228,7 @@ extension NotchPanelController {
                   "Persistent header stays centered during the cached/live transition")
         }
         finish()
-        check(c.motion == nil && c.animationDisplayLink == nil, "Settled animation releases display link")
+        check(c.motion == nil && c.animationDisplayLink?.isPaused != false, "Settled animation pauses display callbacks")
         c.collapse()
         finish()
         c.state.geometry.horizontalOffset = c.state.geometry.settledOffset(200)
@@ -320,10 +293,9 @@ extension NotchPanelController {
               "Deferred data applies after closing without a height jump")
         var hugeDay = c.state.geometry
         hugeDay.showingMonth = false
-        hugeDay.dayExpanded = true
         hugeDay.measureToday(tasks: Array(repeating: store.todayTasks[0], count: 100), error: nil, summary: nil)
         check(hugeDay.expandedHeight <= hugeDay.screenFrame.height - 8, "Extreme Day expansion stays inside screen")
-        check(hugeDay.overflowViewportHeight < hugeDay.overflowHeight, "Extreme Day retains a scrollable overflow region")
+        check(hugeDay.dayViewportHeight < hugeDay.todayContentHeight, "Extreme Day retains all content in a bounded scrolling viewport")
         c.panel.orderOut(nil)
         print("PASS \(count) horizontal pages, overflow, gesture and rendering checks")
     }
@@ -370,7 +342,7 @@ extension NotchPanelController {
             store.loadStatusDemoData(status)
             store.setExpandedMode("today")
             finish()
-            check(!c.state.geometry.dayOverflows && !c.state.geometry.showsCalendar, "Connection messages never masquerade as a calendar or overflow list")
+            check(!c.state.geometry.dayScrolls && !c.state.geometry.showsCalendar, "Connection messages fit their measured content")
             await capture(name)
             store.setExpandedMode("month")
             finish()
@@ -403,8 +375,8 @@ extension NotchPanelController {
         finish()
         await store.completeTask(store.pendingTasks[0].id)
         await capture("save-failed-long-day")
-        check(c.state.geometry.dayOverflows && c.state.geometry.noticeHeight > 0,
-              "Save errors remain visible above a six-row preview")
+        check(c.state.geometry.dayScrolls && c.state.geometry.noticeHeight > 0,
+              "Save errors remain visible above the scrolling task list")
         await store.retryCompletion()
         finish()
         check(store.taskError == nil && c.state.geometry.noticeHeight == 0, "Retry restores the original task layout")
@@ -416,26 +388,19 @@ extension NotchPanelController {
         await capture("saved-recovered")
         store.loadDemoData(taskCount: 6, completedCount: 6)
         finish()
-        check(!c.state.geometry.dayOverflows, "The closing message does not create a disclosure button for six completed rows")
+        check(!c.state.geometry.dayScrolls, "Six completed rows and their summary fit directly")
         await capture("six-completed")
 
         store.loadLongTitleDemoData()
         finish()
         let g = c.state.geometry
-        check(g.dayOverflows && g.previewTaskCount == 1 && g.previewOverflowOffset > 0,
-              "One very tall reminder still has visible preview text")
-        check(abs(g.previewContentHeight + g.overflowHeight - g.todayContentHeight) < 0.01,
-              "A split reminder loses no content height")
-        let previewTargets = g.taskInteractionRects(tasks: store.presentationTasks, in: c.panel.frame)
-        check(previewTargets.count == 1 && previewTargets[0].rect.height == g.previewContentHeight,
-              "The partial reminder hit area stops before the disclosure")
-        await capture("long-title-preview")
-        let footer = g.toggleInteractionRect(in: c.panel.frame)
-        c.state.onToggleDay?()
-        finish()
-        check(c.state.geometry.toggleInteractionRect(in: c.panel.frame) == footer, "A tall reminder reveals its continuation without moving the disclosure")
-        check(c.state.geometry.overflowStartIndex == 0, "Overflow continues the same reminder, not an empty list")
-        await capture("long-title-expanded")
+        check(g.todayContentHeight == g.taskHeight(store.presentationTasks[0]),
+              "A multiline reminder retains its complete measured height")
+        check(c.panel.frame.height <= g.maximumExpandedHeight,
+              "A multiline reminder respects the Month height limit")
+        check(g.dayViewportHeight == min(g.todayContentHeight, g.maximumExpandedHeight - g.monthTop - g.padding),
+              "A multiline reminder uses available space before scrolling")
+        await capture("long-title-scroll")
 
         for month in [2, 4, 11] {
             store.loadDemoMonthFixture(month: month)
@@ -462,7 +427,7 @@ extension NotchPanelController {
         await capture("completion-moving", settle: false)
         await mutation.value
         await capture("completion-settled")
-        check(!c.snapshotLayer.isVisible && c.animationDisplayLink == nil,
+        check(!c.snapshotLayer.isVisible && c.animationDisplayLink?.isPaused != false,
               "Completion settles back to the live view with no running window animation")
         c.panel.orderOut(nil)
         print("PASS \(checks) native recovery layout, month layout and completion presentation checks")

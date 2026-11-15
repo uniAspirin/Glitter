@@ -1,6 +1,6 @@
 # Developing Glitter
 
-Glitter 1.1.1 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
+Glitter 1.2 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
 ## Build and run
 
@@ -20,7 +20,7 @@ open build/Glitter-Demo.app
 
 Demo uses fictional tasks and in-memory settings. It does not access real reminders or register a login item. The checks below cover additional sample data and recovery scenarios.
 
-Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. Always Show Today on Hover is a switch in Settings and a checked menu-bar menu item. It defaults to off, persists in regular use and shares the same controller preference across both controls. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
+Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
 
 ## Checks
 
@@ -54,9 +54,9 @@ Day includes reminders due today and overdue reminders that remain unfinished or
 
 Month is recalculated from current reminder records, without daily history snapshots. Completing overdue work credits today and leaves the missed day incomplete. Source edits can change historical results. Eight gold levels show positive completion, with the brightest gold and glow reserved for full completion. Zero completion, no tasks and future dates use `#141414`.
 
-The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Hover entry selects Today on the left half or Month on the right half, with the exact midpoint assigned to the right. The choice is made only on entry. The Today preference overrides both halves. A completely collapsed panel prepares the selected page before expansion. Re-entry during collapse retargets the existing animation from its current presentation frame. Manual view switches remain available while expanded. Day disclosure lasts for the current run.
+The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Every expansion starts with Today, regardless of entry position or the previously open page. A collapsed panel prepares Today before expansion. Re-entry during collapse retargets the animation toward Today from its current presentation frame. Click the top-right cube to enter Month and the score to return to Today. Hovering the buttons highlights them. Day fits its full task content up to the Month height, then scrolls vertically with overlay scrollbars. View selection is handled by the header buttons.
 
-Window transitions use native display-link timing and cached view snapshots. Hover expansion and collapse take 120 ms, with a separate 140 ms grace period before collapse. Day and Month view trees and snapshot layers remain in memory for reuse. Selecting a page reuses measured geometry and updates presentation without publishing task-data changes or rebuilding the menu. Data and display changes refresh the cached snapshots. The live task views resume after the transition. Reduce Motion is respected.
+Window transitions use native display-link timing and cached view snapshots. Hover expansion and collapse take 120 ms, with a separate 140 ms grace period before collapse. Page transitions take 100 ms. The display link requests the screen's maximum refresh rate during motion and stays paused between transitions. Day and Month view trees and snapshot layers remain in memory for reuse. Selecting a page reuses measured geometry and updates presentation without publishing task-data changes or rebuilding the menu. Data and display changes refresh the cached snapshots. Scrollable Day transitions capture the retained live viewport so the same rows appear before and after the layer handoff. The live task views resume after the transition. Reduce Motion is respected.
 
 ## Package a DMG
 
@@ -64,7 +64,7 @@ Window transitions use native display-link timing and cached view snapshots. Hov
 ./package.sh
 ```
 
-This rebuilds the production app and creates `dist/Glitter-1.1.1.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
+This rebuilds the production app and creates `dist/Glitter-1.2.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
 
 The default build uses ad-hoc signing. A successful local signature check does not imply Apple notarization or Gatekeeper acceptance on another Mac. Gatekeeper may block an unnotarized download.
 
