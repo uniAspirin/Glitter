@@ -4,6 +4,12 @@ extension TaskStore {
         func check(_ value: @autoclosure () -> Bool, _ message: String) {
             precondition(value(), message); count += 1
         }
+        let completionDuration = Double(CompletionTiming.acknowledge + CompletionTiming.fadeOut) / 1_000_000_000
+            + CompletionTiming.movement
+        check(abs(completionDuration - 0.265) < 0.000001 && CompletionTiming.fadeIn == 0.08,
+              "Completion acknowledgement, fade and movement use the faster rhythm")
+        check(CompletionTiming.protection == 120_000_000,
+              "Faster completion retains protection against clicking the newly moved row")
         let (store, _) = todayFixture()
         let listID = store.selectedCalendarIDs.first!
         store.loaded = false

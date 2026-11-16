@@ -28,9 +28,10 @@ struct PanelMessage: Equatable {
 
 /// Deliberate completion has three beats: acknowledge, move, settle.
 enum CompletionTiming {
-    static let acknowledge: UInt64 = 100_000_000
-    static let fadeOut: UInt64 = 60_000_000
-    static let movement: Double = 0.18
+    static let acknowledge: UInt64 = 80_000_000
+    static let fadeOut: UInt64 = 45_000_000
+    static let movement: Double = 0.14
+    static let fadeIn: Double = 0.08
     static let protection: UInt64 = 120_000_000
     static let spinnerDelay: UInt64 = 180_000_000
 }

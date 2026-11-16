@@ -30,7 +30,7 @@ struct NotchGeometry: Equatable {
 
     let padding: CGFloat = 12
     let blockSize: CGFloat = 13
-    let headerPadding: CGFloat = 8
+    let headerPadding: CGFloat = 12
     var horizontalPadding: CGFloat { headerPadding }
     static let scoreFontSize: CGFloat = 11
     static let reservedScoreWidth: CGFloat = {
@@ -51,11 +51,11 @@ struct NotchGeometry: Equatable {
     static let messageGap: CGFloat = 5
 
     // Integral centers and even widths avoid NSWindow rounding a half-point origin.
-    var panelWidth: CGFloat { ceil(max(262, notchWidth + 2 * (Self.reservedScoreWidth + headerPadding + 2)) / 2) * 2 }
+    var panelWidth: CGFloat { ceil(max(270, notchWidth + 2 * (Self.reservedScoreWidth + headerPadding + 2)) / 2) * 2 }
     var expandedWidth: CGFloat { panelWidth }
     var contentWidth: CGFloat { panelWidth - 2 * horizontalPadding }
     var coversNotch: Bool { hasNotch && abs(horizontalOffset) < (panelWidth + notchWidth) / 2 }
-    var collapsedWidth: CGFloat { coversNotch ? panelWidth : ceil((Self.reservedScoreWidth + blockSize + headerPadding * 4) / 2) * 2 }
+    var collapsedWidth: CGFloat { coversNotch ? panelWidth : ceil((Self.reservedScoreWidth + blockSize + 2 * headerPadding + 16) / 2) * 2 }
     var collapsedHeight: CGFloat { hasNotch ? notchHeight : 34 }
     var topGap: CGFloat { 0 }
     var headerCornerRadius: CGFloat { 6 }

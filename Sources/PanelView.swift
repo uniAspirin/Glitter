@@ -19,8 +19,6 @@ final class PanelState: ObservableObject {
     var onSelectDay: (() -> Void)?
     var onSelectMonth: (() -> Void)?
     var onTogglePinned: (() -> Void)?
-    var onDragChanged: (() -> Void)?
-    var onDragEnded: (() -> Void)?
 
     init(geometry: NotchGeometry, mode: String = "today") {
         self.geometry = geometry
@@ -179,18 +177,11 @@ struct PanelHeaderView: View {
     @ObservedObject var state: PanelState
     private var g: NotchGeometry { state.geometry }
 
-    private var panelDrag: some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { _ in state.onDragChanged?() }
-            .onEnded { _ in state.onDragEnded?() }
-    }
-
     var body: some View {
         GeometryReader { proxy in
             statusBar(width: proxy.size.width)
                 .frame(width: proxy.size.width, height: g.collapsedHeight)
                 .contentShape(Rectangle())
-                .simultaneousGesture(panelDrag)
         }
         .background(Color.black)
         .contextMenu { PanelMenu(store: store, state: state) }
@@ -276,12 +267,14 @@ private struct PanelMenu: View {
     var body: some View {
         Group {
             Button("Settings") { state.onOpenSettings?() }
-            Toggle("Keep Expand", isOn: Binding(
-                get: { state.pinned },
-                set: { pinned in
-                    if pinned != state.pinned { state.onTogglePinned?() }
-                }
-            ))
+            if store.isDemo {
+                Toggle("Keep Expand", isOn: Binding(
+                    get: { state.pinned },
+                    set: { pinned in
+                        if pinned != state.pinned { state.onTogglePinned?() }
+                    }
+                ))
+            }
             if store.selectedCalendars.count > 1 {
                 Menu("Open Tracked List") {
                     ForEach(store.selectedCalendars, id: \.calendarIdentifier) { list in
@@ -317,7 +310,8 @@ struct TodayContent: View {
                 }
                 taskRow.matchedGeometryEffect(id: row.id, in: taskMovement)
                 .opacity(store.movingTaskID == task.id ? 0 : 1)
-                .animation(reduceMotion ? nil : .easeOut(duration: store.movingTaskID == nil ? 0.10 : 0.06), value: store.movingTaskID)
+                .animation(reduceMotion ? nil : .easeOut(duration: store.movingTaskID == nil
+                    ? CompletionTiming.fadeIn : TimeInterval(CompletionTiming.fadeOut) / 1_000_000_000), value: store.movingTaskID)
                 .transition(.identity)
             }
             if !store.todayTasks.isEmpty, let summary = store.presentationSummary {

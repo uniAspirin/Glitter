@@ -39,6 +39,25 @@ extension NotchPanelController {
             return pixel
         }
         let reserved = NotchGeometry.make(for: builtIn, rows: 6, offset: 0, scoreText: "99/99")
+        check(reserved.horizontalPadding == 12 && reserved.padding == 12,
+              "Horizontal padding is 12pt and vertical padding returns to 12pt")
+        check(reserved.collapsedHeight == 32,
+              "The folded header returns to the physical notch height")
+        check(reserved.expandedWidth == 286 && reserved.contentWidth == 262,
+              "The wider horizontal padding preserves the original content width")
+        let unnotched = NotchGeometry.make(for: external, rows: 6, offset: 0, referenceNotchWidth: 185)
+        check(unnotched.collapsedHeight == 34,
+              "External displays retain the original folded header height")
+        check(unnotched.collapsedWidth == ceil((NotchGeometry.reservedScoreWidth + unnotched.blockSize + 24 + 16) / 2) * 2,
+              "Compact folded layout uses 12pt outer padding and its original 16pt inner gap")
+        check(reserved.monthTop - reserved.collapsedHeight == 12,
+              "Expanded content returns to its original top padding")
+        var monthGeometry = reserved
+        monthGeometry.showingMonth = true
+        check(abs(monthGeometry.expandedHeight - monthGeometry.monthTop - monthGeometry.monthViewportHeight - 12) < 1,
+              "Month returns to its original bottom padding")
+        check(NotchGeometry.taskRowPadding == 2.5 && reserved.monthHeadingGap == 8,
+              "Outer padding changes preserve task density and internal calendar spacing")
         check(reserved.horizontalPadding == reserved.headerPadding, "Body and header share horizontal content insets")
         check(abs(reserved.gridOriginX - reserved.headerPadding) < 0.001,
               "Calendar leading edge aligns with the score")
@@ -62,8 +81,7 @@ extension NotchPanelController {
         check(store.expandedMode == "today", "Collapsed block does not change the page")
         capture("folded")
         c.expand()
-        let hoverDuration = c.motion!.duration
-        check(hoverDuration == 0.12, "Hover expansion takes 120ms")
+        check(abs((c.motion?.spring?.response ?? 0) - 0.36) < 0.000001, "Hover expansion uses the selected spring")
         finish()
         check(c.panel.frame.midX == builtIn.frame.midX, "Native window centers exactly on the 185pt notch")
         var dayHeight = c.panel.frame.height
@@ -71,7 +89,7 @@ extension NotchPanelController {
         check(c.panel.frame.width == width && c.panel.frame.maxY == top, "Expansion preserves notch width and top edge")
         check(!c.state.geometry.dayScrolls, "Short Day has no disclosure")
         c.state.onSelectMonth?()
-        check(c.motion?.duration == 0.10, "Changing pages takes 100ms")
+        check(c.motion?.pageDuration == 0.16, "Changing pages takes 160ms")
         finish()
         check(store.expandedMode == "month", "Right block selects Month")
         check(c.panel.frame.height > dayHeight, "Short Day fits its content while Month retains calendar height")
@@ -121,7 +139,7 @@ extension NotchPanelController {
         finish()
         check(store.expandedMode == "month", "The cube opens Month")
         c.collapse()
-        check(c.motion?.duration == hoverDuration, "Hover collapse and expansion use the same duration")
+        check(abs((c.motion?.spring?.response ?? 0) - 0.26) < 0.000001, "Hover collapse uses the selected close spring")
         finish()
         check(store.expandedMode == "month", "Hover collapse retains selected page")
         check(c.panel.frame.height == c.state.geometry.collapsedHeight, "Collapse settles at exact header height")

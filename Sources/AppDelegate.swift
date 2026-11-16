@@ -43,10 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if CommandLine.arguments.contains("--expanded") {
-            controller.forceExpandedForDebug()
-        }
-
         if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 self?.settingsWindow.show()
@@ -144,10 +140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh.target = self
         statusMenu.addItem(refresh)
 
-        let pinned = NSMenuItem(title: "Keep Expanded", action: #selector(togglePinned), keyEquivalent: "")
-        pinned.target = self
-        pinned.state = controller.state.pinned ? .on : .off
-        statusMenu.addItem(pinned)
+        if store.isDemo {
+            let pinned = NSMenuItem(title: "Keep Expand", action: #selector(togglePinned), keyEquivalent: "")
+            pinned.target = self
+            pinned.state = controller.state.pinned ? .on : .off
+            statusMenu.addItem(pinned)
+        }
 
         statusMenu.addItem(.separator())
 

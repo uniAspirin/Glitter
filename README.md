@@ -18,7 +18,7 @@ Glitter is a small macOS app that keeps Apple Reminders tasks beside your notch 
 - **Keeps today visible.** Shows today’s tasks and unfinished overdue reminders at the top of your screen. Click to mark them complete. Create and edit tasks in Apple Reminders.
 - **Shows your progress.** Eight shades of gold represent daily completion. Days with all tasks completed glow gold.
 - **Today on hover.** Every hover expansion starts with Today. Click the top-right cube to view Month.
-- **Choose your controls.** Show or hide the menu bar icon in Settings. Right-click the panel for Settings, Keep Expand, Open Tracked List and Quit Glitter.
+- **Choose your controls.** Show or hide the menu bar icon in Settings. Right-click the panel for Settings, Open Tracked List and Quit Glitter.
 
 Read the [privacy details and verification notes](docs/PRIVACY.md).
 
@@ -43,7 +43,7 @@ Glitter 是一个小型 macOS 应用，将 Apple Reminders 中的任务放在刘
 - **让今天的任务保持可见。** 在屏幕顶部显示今日任务和未完成的逾期事项。悬停查看，点击完成。创建和编辑仍在提醒事项中进行。
 - **看见每天的积累。** 八级金色表示每天的完成比例，全部完成的日子会亮起金色光晕。
 - **查看今天。** 每次悬停展开都显示 Today，点击右上角方块进入 Month。
-- **选择操作入口。** 在设置中选择是否显示菜单栏图标。刘海右键菜单提供设置、保持展开、打开跟踪列表和退出四项操作。
+- **选择操作入口。** 在设置中选择是否显示菜单栏图标。刘海右键菜单提供设置、打开跟踪列表和退出三项操作。
 
 查看[隐私说明与检查记录](docs/PRIVACY.md)。
 

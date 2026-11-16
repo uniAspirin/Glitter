@@ -20,7 +20,7 @@ open build/Glitter-Demo.app
 
 Demo uses fictional tasks and in-memory settings. It does not access real reminders or register a login item. The checks below cover additional sample data and recovery scenarios.
 
-Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Keep Expand, Open Tracked List and Quit Glitter. Multi-list destinations appear in the Open Tracked List submenu.
+Settings includes Show Menu Bar Icon, enabled by default and persisted for regular use. The controller notifies AppDelegate to update the native status item's visibility. Hiding it leaves the panel's Settings context-menu entry available. The panel context menu contains Settings, Open Tracked List and Quit Glitter. Demo also includes Keep Expand for development. Multi-list destinations appear in the Open Tracked List submenu.
 
 ## Checks
 

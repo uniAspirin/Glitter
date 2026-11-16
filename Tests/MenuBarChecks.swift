@@ -7,8 +7,9 @@ extension NotchPanelController {
             precondition(value(), message)
             count += 1
         }
-        func configuredController(defaults: UserDefaults) -> NotchPanelController {
+        func configuredController(defaults: UserDefaults, demo: Bool = false) -> NotchPanelController {
             let (store, _) = TaskStore.todayFixture()
+            if demo { store.loadDemoData() }
             let controller = NotchPanelController(store: store, defaults: defaults)
             controller.hoverTimer?.invalidate()
             return controller
@@ -34,16 +35,22 @@ extension NotchPanelController {
         check(relaunched.showsMenuBarIcon, "Settings can restore the icon")
         check(defaults.object(forKey: "Glitter.showMenuBarIcon") as? Bool == true, "Restored icon preference is persisted")
 
-        controller.state.onTogglePinned?()
-        check(controller.state.pinned && controller.state.expanded, "The panel context-menu action pins and expands the panel")
-        controller.collapse()
-        check(controller.state.expanded, "A pinned panel ignores hover collapse")
-        controller.state.onTogglePinned?()
-        check(!controller.state.pinned, "The context-menu action releases the pin")
+        check(controller.state.onTogglePinned == nil, "Regular mode has no pin menu action")
+        controller.togglePinned()
+        controller.forceExpandedForDebug()
+        check(!controller.state.pinned && !controller.state.expanded, "Regular mode cannot enable Keep Expand")
 
         let demoDefaults = DemoDefaults()
-        let demo = configuredController(defaults: demoDefaults)
+        let demo = configuredController(defaults: demoDefaults, demo: true)
         defer { demo.panel.orderOut(nil) }
+        demo.state.onTogglePinned?()
+        check(demo.state.pinned && demo.state.expanded, "Demo keeps its pin action for visual checks")
+        demo.collapse()
+        check(demo.state.expanded, "A pinned Demo ignores hover collapse")
+        demo.state.onTogglePinned?()
+        check(!demo.state.pinned, "Demo can release its pin")
+        demo.forceExpandedForDebug()
+        check(demo.state.pinned && demo.state.expanded, "Demo can start pinned for development")
         demo.setMenuBarIconVisible(false)
         check(demoDefaults.object(forKey: "Glitter.showMenuBarIcon") as? Bool == false,
               "Demo stores its visibility choice in its in-memory defaults")

@@ -107,11 +107,23 @@ struct SettingsView: View {
                     .padding(.top, 6)
             }
 
+            if store.isDemo {
+                Divider().padding(.vertical, 16)
+                title("Animation Demo")
+                subtitle("Smooth Slide · 160 ms")
+                HStack {
+                    Button("Replay Pages") { controller.previewPageTransition() }
+                    Button("Replay Notch") { controller.previewNotchTransition() }
+                }
+                .padding(.top, 10)
+                subtitle("Expand 0.36 / 0.76 · Collapse 0.26 / 0.96")
+            }
+
             Spacer(minLength: 0)
 
         }
         .padding(22)
-        .frame(width: 380, height: 680)
+        .frame(width: 380, height: store.isDemo ? 820 : 680)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { loginItems.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -215,7 +227,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
         )
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: store.isDemo ? 820 : 680),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

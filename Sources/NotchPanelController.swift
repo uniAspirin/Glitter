@@ -9,6 +9,7 @@ final class NotchPanel: NSPanel {
 private final class PanelSurfaceView: NSView {
     var onPointerChanged: (() -> Void)?
     var blocksContentInput = false
+    weak var interactiveHeader: NSView?
     var visibleContentRect: NSRect?
 
     private let outlineMask = CAShapeLayer()
@@ -36,7 +37,9 @@ private final class PanelSurfaceView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard containsVisiblePoint(point) else { return nil }
+        let local = convert(point, from: superview)
+        guard containsVisiblePoint(local) else { return nil }
+        if let header = interactiveHeader, let hit = header.hitTest(local) { return hit }
         if blocksContentInput { return self }
         return super.hitTest(point)
     }
@@ -83,6 +86,7 @@ final class NotchPanelController: ObservableObject {
     @Published private(set) var selectedDisplayID: CGDirectDisplayID?
     @Published private(set) var screens: [NSScreen]
     @Published private(set) var showsMenuBarIcon: Bool
+    private var demoPreviewWork: DispatchWorkItem?
 
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
@@ -94,11 +98,14 @@ final class NotchPanelController: ObservableObject {
         let start: MotionVector
         let target: MotionVector
         let velocity: MotionVector
-        let started: CFTimeInterval
+        var started: CFTimeInterval
         let duration: TimeInterval
+        let containerDuration: TimeInterval
+        let pageDuration: TimeInterval
+        let spring: Spring?
     }
-    private static let motionDuration: TimeInterval = 0.10
-    private static let expansionDuration: TimeInterval = 0.12
+    private static let pageDuration: TimeInterval = 0.16
+    private static let collapseDelay: TimeInterval = 0.30
     private let displayLinkTarget = AnimationDisplayLinkTarget()
     private var animationDisplayLink: CADisplayLink?
     private var motion: Motion?
@@ -111,6 +118,8 @@ final class NotchPanelController: ObservableObject {
     private var snapshotWork: DispatchWorkItem?
     private var pendingDataChange = false
     private var pointerGlobalMonitor: Any?
+    private var dragMonitor: Any?
+    private var headerPressOrigin: NSPoint?
     private let defaults: UserDefaults
 
     private var isDragging = false
@@ -184,6 +193,7 @@ final class NotchPanelController: ObservableObject {
         headerHosting.wantsLayer = true
         headerHosting.layer?.zPosition = 20
         surfaceView.addSubview(headerHosting)
+        surfaceView.interactiveHeader = headerHosting
         headerHosting.sizingOptions = []
         surfaceView.applyVisibleFrame(surfaceView.bounds, corner: state.cornerRadius)
         layoutHeader(frame: surfaceView.bounds)
@@ -194,11 +204,21 @@ final class NotchPanelController: ObservableObject {
             guard let self, self.animationDisplayLink === link else { return }
             self.advanceAnimation(at: link.targetTimestamp)
         }
-        state.onTogglePinned = { [weak self] in self?.togglePinned() }
+        if store.isDemo {
+            state.onTogglePinned = { [weak self] in self?.togglePinned() }
+        }
         state.onSelectDay = { [weak self] in self?.selectMode("today") }
         state.onSelectMonth = { [weak self] in self?.selectMode("month") }
-        state.onDragChanged = { [weak self] in self?.dragChanged() }
-        state.onDragEnded = { [weak self] in self?.dragEnded() }
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let inPanel = event.window === self.panel
+                let point = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+                self.trackHeaderPointer(type: event.type, point: point, inPanel: inPanel)
+            }
+            // Let the native button receive its complete press/release sequence.
+            return event
+        }
 
         store.onUpdate = { [weak self] in self?.dataChanged() }
         startHoverWatch()
@@ -211,7 +231,9 @@ final class NotchPanelController: ObservableObject {
         hoverTimer?.invalidate()
         collapseWork?.cancel()
         snapshotWork?.cancel()
+        demoPreviewWork?.cancel()
         if let pointerGlobalMonitor { NSEvent.removeMonitor(pointerGlobalMonitor) }
+        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
         if let observer = screenObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
@@ -260,6 +282,27 @@ final class NotchPanelController: ObservableObject {
             return
         }
 
+        let changesExpansion = start.second.second.first != target.second.second.first
+        let spring = changesExpansion ? Spring(response: expanded ? 0.36 : 0.26,
+                                                dampingRatio: expanded ? 0.76 : 0.96) : nil
+        let baseDuration = Self.pageDuration
+        let initialVelocity = spring == nil
+            ? Self.boundedVelocity(velocity, displacement: target - start, duration: baseDuration) : velocity
+        var containerTarget = target - start
+        containerTarget.second.second.second = 0
+        var containerVelocity = initialVelocity
+        containerVelocity.second.second.second = 0
+        let containerDuration = spring.map {
+            max($0.response * 1.5, $0.settlingDuration(target: containerTarget, initialVelocity: containerVelocity, epsilon: 1))
+        } ?? baseDuration
+        let pageDuration = start.second.second.second == target.second.second.second ? 0 : Self.pageDuration
+        var boundedInitialVelocity = initialVelocity
+        boundedInitialVelocity.second.second.second = Self.boundedVelocity(velocity, displacement: target - start,
+                                                                          duration: baseDuration).second.second.second
+        let duration = max(containerDuration, pageDuration)
+        var nextMotion = Motion(start: start, target: target, velocity: boundedInitialVelocity,
+                                started: 0, duration: duration, containerDuration: containerDuration,
+                                pageDuration: pageDuration, spring: spring)
         presentedVector = start
         if let day = renderCache.snapshot(page: .day, store: store, state: state),
            let month = renderCache.snapshot(page: .month, store: store, state: state) {
@@ -279,7 +322,7 @@ final class NotchPanelController: ObservableObject {
                let scrolledDay = snapshotLayer.captureLive(headerHeight: state.geometry.collapsedHeight) {
                 snapshotLayer.show(day: scrolledDay, month: month)
             }
-            let animationBounds = presentationRect(start).union(presentationRect(target))
+            let animationBounds = animationBounds(for: nextMotion)
             panel.setFrame(animationBounds, display: false)
             let visible = presentationRect(start).offsetBy(dx: -animationBounds.minX, dy: -animationBounds.minY)
             let collapsed: CGFloat = state.geometry.hasNotch ? 12 : 16
@@ -292,11 +335,8 @@ final class NotchPanelController: ObservableObject {
         }
         snapshotWork?.cancel()
         store.setPresentationDeferred(true)
-        let changesExpansion = start.second.second.first != target.second.second.first
-        let duration = changesExpansion ? Self.expansionDuration : Self.motionDuration
-        motion = Motion(start: start, target: target,
-                        velocity: Self.boundedVelocity(velocity, displacement: target - start, duration: duration),
-                        started: CACurrentMediaTime(), duration: duration)
+        nextMotion.started = CACurrentMediaTime()
+        motion = nextMotion
         if pointerGlobalMonitor == nil && snapshotLayer.isVisible {
             pointerGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pollCursor() }
@@ -325,22 +365,55 @@ final class NotchPanelController: ObservableObject {
             finishPresentation()
             return
         }
-        let t = elapsed / motion.duration
-        var displacement = motion.target - motion.start
-        displacement.scale(by: t * t * (3 - 2 * t))
-        var carriedVelocity = motion.velocity
-        carriedVelocity.scale(by: motion.duration * t * (1 - t) * (1 - t))
-        present(vector: motion.start + displacement + carriedVelocity)
+        present(vector: Self.motionValue(motion, elapsed: elapsed))
+    }
+
+    private static func motionValue(_ motion: Motion, elapsed: TimeInterval) -> MotionVector {
+        var value = motion.target
+        if elapsed < motion.containerDuration {
+            if let spring = motion.spring {
+                value = motion.start + spring.value(target: motion.target - motion.start,
+                                                     initialVelocity: motion.velocity, time: elapsed)
+            } else {
+                let t = min(1, max(0, elapsed / motion.containerDuration))
+                var displacement = motion.target - motion.start
+                displacement.scale(by: t * t * (3 - 2 * t))
+                var velocity = motion.velocity
+                velocity.scale(by: motion.containerDuration * t * (1 - t) * (1 - t))
+                value = motion.start + displacement + velocity
+            }
+        }
+        // Page translation has its own timing, even when clicked during the opening spring.
+        let t = motion.pageDuration > 0 ? min(1, max(0, elapsed / motion.pageDuration)) : 1
+        let start = motion.start.second.second.second
+        let distance = motion.target.second.second.second - start
+        value.second.second.second = start + distance * t * t * (3 - 2 * t)
+            + motion.velocity.second.second.second * motion.pageDuration * t * (1 - t) * (1 - t)
+        return value
     }
 
     /// Cubic Hermite easing preserves velocity on reversal and reaches its exact endpoint.
     private static func motionVelocity(_ motion: Motion, elapsed: TimeInterval) -> MotionVector {
-        let t = min(1, max(0, elapsed / motion.duration))
-        var displacement = motion.target - motion.start
-        displacement.scale(by: 6 * t * (1 - t) / motion.duration)
-        var velocity = motion.velocity
-        velocity.scale(by: (1 - t) * (1 - 3 * t))
-        return displacement + velocity
+        var result = MotionVector.zero
+        if elapsed < motion.containerDuration {
+            if let spring = motion.spring {
+                result = spring.velocity(target: motion.target - motion.start,
+                                         initialVelocity: motion.velocity, time: elapsed)
+            } else {
+                let t = min(1, max(0, elapsed / motion.containerDuration))
+                var displacement = motion.target - motion.start
+                displacement.scale(by: 6 * t * (1 - t) / motion.containerDuration)
+                var velocity = motion.velocity
+                velocity.scale(by: (1 - t) * (1 - 3 * t))
+                result = displacement + velocity
+            }
+        }
+        let t = motion.pageDuration > 0 ? min(1, max(0, elapsed / motion.pageDuration)) : 1
+        let distance = motion.target.second.second.second - motion.start.second.second.second
+        result.second.second.second = motion.pageDuration > 0
+            ? distance * 6 * t * (1 - t) / motion.pageDuration
+                + motion.velocity.second.second.second * (1 - t) * (1 - 3 * t) : 0
+        return result
     }
 
     private static func boundedVelocity(_ velocity: MotionVector, displacement: MotionVector, duration: TimeInterval) -> MotionVector {
@@ -387,6 +460,18 @@ final class NotchPanelController: ObservableObject {
         }
         snapshotWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func animationBounds(for motion: Motion) -> NSRect {
+        var bounds = presentationRect(motion.start).union(presentationRect(motion.target))
+        guard motion.spring != nil else { return bounds }
+        // Reserve the spring's full path once, including overshoot, without resizing each frame.
+        for step in 1...60 {
+            bounds = bounds.union(presentationRect(Self.motionValue(motion, elapsed: motion.duration * Double(step) / 60)))
+        }
+        return NSRect(x: floor(bounds.minX), y: floor(bounds.minY),
+                      width: ceil(bounds.maxX) - floor(bounds.minX),
+                      height: ceil(bounds.maxY) - floor(bounds.minY))
     }
 
     private static func vector(rect: NSRect, expansion: CGFloat, month: CGFloat) -> MotionVector {
@@ -447,6 +532,7 @@ final class NotchPanelController: ObservableObject {
     }
 
     func togglePinned() {
+        guard store.isDemo else { return }
         state.pinned.toggle()
         if state.pinned {
             expand()
@@ -464,8 +550,45 @@ final class NotchPanelController: ObservableObject {
     }
 
     func forceExpandedForDebug() {
+        guard store.isDemo else { return }
         state.pinned = true
         expand()
+    }
+
+    // MARK: - Local animation demo
+
+    func previewPageTransition() {
+        guard store.isDemo else { return }
+        demoPreviewWork?.cancel()
+        state.pinned = true
+        if !state.expanded {
+            expand()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.demoPreviewWork = nil
+                self.selectMode("month")
+            }
+            demoPreviewWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (motion?.duration ?? 0) + 0.08, execute: work)
+            return
+        }
+        selectMode(store.expandedMode == "today" ? "month" : "today")
+    }
+
+    func previewNotchTransition() {
+        guard store.isDemo else { return }
+        demoPreviewWork?.cancel()
+        state.pinned = false
+        collapse()
+        let delay = (motion?.duration ?? 0) + 0.12
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.demoPreviewWork = nil
+            self.state.pinned = true
+            self.expand()
+        }
+        demoPreviewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     // MARK: - 显示器
@@ -502,17 +625,37 @@ final class NotchPanelController: ObservableObject {
         store.setExpandedMode(mode)
     }
 
-    private func dragChanged() {
+    private func trackHeaderPointer(type: NSEvent.EventType, point: NSPoint, inPanel: Bool) {
+        switch type {
+        case .leftMouseDown:
+            headerPressOrigin = nil
+            guard inPanel, state.expanded else { return }
+            let header = NSRect(x: interactionFrame.minX, y: interactionFrame.maxY - state.geometry.collapsedHeight,
+                                width: interactionFrame.width, height: state.geometry.collapsedHeight)
+            if header.contains(point) { headerPressOrigin = point }
+        case .leftMouseDragged:
+            guard let origin = headerPressOrigin else { return }
+            guard isDragging || hypot(point.x - origin.x, point.y - origin.y) >= 3 else { return }
+            dragChanged(at: point, origin: origin)
+        case .leftMouseUp:
+            headerPressOrigin = nil
+            dragEnded()
+        default:
+            break
+        }
+    }
+
+    private func dragChanged(at point: NSPoint, origin: NSPoint) {
         guard state.expanded else { return }
         if !isDragging {
             state.headerHovered = false
             isDragging = true
-            dragStartMouseX = NSEvent.mouseLocation.x
+            dragStartMouseX = origin.x
             dragStartOffset = state.geometry.horizontalOffset
             cancelScheduledCollapse()
         }
 
-        let delta = NSEvent.mouseLocation.x - dragStartMouseX
+        let delta = point.x - dragStartMouseX
         let offset = state.geometry.clampedOffset(dragStartOffset + delta)
 
         guard offset != state.geometry.horizontalOffset else { return }
@@ -521,6 +664,7 @@ final class NotchPanelController: ObservableObject {
     }
 
     private func dragEnded() {
+        headerPressOrigin = nil
         guard isDragging else { return }
         lastDragEndedAt = Date()
         isDragging = false
@@ -585,7 +729,7 @@ final class NotchPanelController: ObservableObject {
             if !self.state.pinned && !self.isDragging { self.collapse() }
         }
         collapseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.collapseDelay, execute: work)
     }
 
     private func cancelScheduledCollapse() {

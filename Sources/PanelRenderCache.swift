@@ -5,6 +5,31 @@ struct PanelSnapshot {
     let body: CGImage
     let size: CGSize
     let headerHeight: CGFloat
+
+    @MainActor
+    static func capture(_ view: NSView, headerHeight: CGFloat, scale: CGFloat) -> PanelSnapshot? {
+        guard view.bounds.height > headerHeight,
+              let preferred = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        let width = Int(round(view.bounds.width * scale))
+        let height = Int(round(view.bounds.height * scale))
+        let bitmap: NSBitmapImageRep
+        if preferred.pixelsWide == width && preferred.pixelsHigh == height {
+            bitmap = preferred
+        } else {
+            // Preserve Retina resolution when the requested display differs from the backing screen.
+            guard let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+            scaled.size = view.bounds.size
+            bitmap = scaled
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let image = bitmap.cgImage else { return nil }
+        let headerPixels = Int(round(headerHeight * scale))
+        guard let body = image.cropping(to: CGRect(x: 0, y: headerPixels, width: image.width,
+                                                  height: image.height - headerPixels)) else { return nil }
+        return PanelSnapshot(body: body, size: view.bounds.size, headerHeight: headerHeight)
+    }
 }
 
 /// Session-local Retina snapshots. Data and display changes invalidate both pages.
@@ -47,16 +72,18 @@ final class PanelRenderCache {
         let view = NotchPanelView(store: store, state: rendering)
             .environment(\.displayScale, full.displayScale)
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
-        let renderer = ImageRenderer(content: view)
-        let scale = max(1, full.displayScale)
-        renderer.scale = scale
-        renderer.proposedSize = ProposedViewSize(size)
-        renderer.isOpaque = true
-        guard let image = renderer.cgImage else { return nil }
-        let headerPixels = Int(round(full.collapsedHeight * scale))
-        guard let body = image.cropping(to: CGRect(x: 0, y: headerPixels, width: image.width, height: image.height - headerPixels)) else { return nil }
-        let result = PanelSnapshot(body: body, size: size, headerHeight: full.collapsedHeight)
-        return result
+        let hosting = NSHostingView(rootView: view)
+        hosting.sizingOptions = []
+        // Use the same AppKit renderer as the live page so shadows retain their appearance.
+        // This window stays ordered out and is released after the cached bitmap is ready.
+        let frame = NSRect(x: full.screenFrame.minX, y: full.screenFrame.maxY - size.height,
+                           width: size.width, height: size.height)
+        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = hosting
+        defer { window.contentView = nil }
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.layoutSubtreeIfNeeded()
+        return PanelSnapshot.capture(hosting, headerHeight: full.collapsedHeight, scale: max(1, full.displayScale))
     }
 }
 
@@ -102,30 +129,25 @@ final class PanelSnapshotLayer {
     }
 
     func captureLive(headerHeight: CGFloat) -> PanelSnapshot? {
-        guard let hosting, hosting.bounds.height > headerHeight,
-              let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        guard let hosting else { return nil }
         let hidden = hosting.isHidden
         hosting.isHidden = false
-        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-        hosting.isHidden = hidden
-        guard let image = bitmap.cgImage else { return nil }
-        let scale = CGFloat(image.width) / hosting.bounds.width
-        let headerPixels = Int(round(headerHeight * scale))
-        guard let body = image.cropping(to: CGRect(x: 0, y: headerPixels,
-                                                  width: image.width, height: image.height - headerPixels)) else { return nil }
-        return PanelSnapshot(body: body, size: hosting.bounds.size, headerHeight: headerHeight)
+        defer { hosting.isHidden = hidden }
+        return PanelSnapshot.capture(hosting, headerHeight: headerHeight, scale: hosting.window?.backingScaleFactor ?? 1)
     }
 
     func layout(frame: NSRect, monthProgress: CGFloat) {
         guard let d = daySnapshot, let m = monthSnapshot else { return }
         let size = frame.size
         container.frame = frame
+        let progress = min(1, max(0, monthProgress))
         let origin = (size.width - d.size.width) / 2
-        day.frame = NSRect(x: origin - d.size.width * monthProgress, y: size.height - d.size.height,
+        day.frame = NSRect(x: origin - d.size.width * progress,
+                           y: size.height - d.size.height,
                            width: d.size.width, height: d.size.height - d.headerHeight)
-        month.frame = NSRect(x: origin + m.size.width * (1 - monthProgress), y: size.height - m.size.height,
+        month.frame = NSRect(x: origin + m.size.width * (1 - progress),
+                             y: size.height - m.size.height,
                              width: m.size.width, height: m.size.height - m.headerHeight)
-
     }
 
     func hide(size: CGSize) {
