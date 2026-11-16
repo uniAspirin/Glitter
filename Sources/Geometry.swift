@@ -43,7 +43,7 @@ struct NotchGeometry: Equatable {
     let monthWeekdayHeight: CGFloat = 14
     static let taskFontSize: CGFloat = 13
     static let taskRowHeight: CGFloat = 18
-    static let taskRowPadding: CGFloat = 2.5
+    static let taskRowPadding: CGFloat = 4
     static let taskMarkerWidth: CGFloat = 10
     static let taskMarkerGap: CGFloat = 7
     var taskTextInset: CGFloat { horizontalPadding + Self.taskMarkerWidth + Self.taskMarkerGap }
@@ -66,7 +66,7 @@ struct NotchGeometry: Equatable {
     }
     func headerInteractionRect(in frame: NSRect) -> NSRect {
         NSRect(x: frame.minX, y: frame.maxY - collapsedHeight,
-               width: headerButtonWidth, height: collapsedHeight)
+               width: headerButtonWidth(in: frame.width), height: collapsedHeight)
     }
     var gridWidth: CGFloat { 7 * cell + 6 * cellGap }
     var gridOriginX: CGFloat { horizontalPadding }
@@ -88,8 +88,9 @@ struct NotchGeometry: Equatable {
         showingMonth ? maximumExpandedHeight : min(maximumExpandedHeight, ceil(monthTop + dayViewportHeight + padding))
     }
     func blockInteractionRect(in frame: NSRect) -> NSRect {
-        NSRect(x: frame.maxX - headerButtonWidth, y: frame.maxY - collapsedHeight,
-               width: headerButtonWidth, height: collapsedHeight)
+        let width = headerButtonWidth(in: frame.width)
+        return NSRect(x: frame.maxX - width, y: frame.maxY - collapsedHeight,
+                      width: width, height: collapsedHeight)
     }
 
     mutating func measureToday(tasks: [TrackedTask], error: String?, summary: String?) {

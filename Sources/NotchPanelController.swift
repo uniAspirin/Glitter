@@ -120,6 +120,9 @@ final class NotchPanelController: ObservableObject {
     private var pointerGlobalMonitor: Any?
     private var dragMonitor: Any?
     private var headerPressOrigin: NSPoint?
+    private var previousHeaderButton: HeaderButton?
+    private var previousHeaderPoint: NSPoint?
+    private var headerFeedbackTask: Task<Void, Never>?
     private let defaults: UserDefaults
 
     private var isDragging = false
@@ -268,6 +271,7 @@ final class NotchPanelController: ObservableObject {
                                  expansion: expanded ? 1 : 0, month: store.expandedMode == "month" ? 1 : 0)
         if animated, animationDisplayLink != nil, motion?.target == target { return }
 
+        resetHeaderHover()
         let start = presentedVector ?? Self.vector(rect: panel.frame, expansion: state.expansionProgress, month: state.monthProgress)
         let velocity = motion.map { Self.motionVelocity($0, elapsed: animationElapsed) } ?? .zero
         // Preserve the visible scroll position when the Day page leaves the screen.
@@ -438,6 +442,7 @@ final class NotchPanelController: ObservableObject {
     }
 
     private func finishPresentation() {
+        resetHeaderHover()
         snapshotLayer?.hide(size: panel.frame.size)
         surfaceView.blocksContentInput = false
         surfaceView.visibleContentRect = nil
@@ -622,6 +627,12 @@ final class NotchPanelController: ObservableObject {
     private func selectMode(_ mode: String) {
         guard state.expanded, acceptsClick else { return }
         cancelScheduledCollapse()
+        headerFeedbackTask?.cancel()
+        state.pressedHeaderButton = mode == "month" ? .month : .today
+        headerFeedbackTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            self?.state.pressedHeaderButton = nil
+        }
         store.setExpandedMode(mode)
     }
 
@@ -648,7 +659,9 @@ final class NotchPanelController: ObservableObject {
     private func dragChanged(at point: NSPoint, origin: NSPoint) {
         guard state.expanded else { return }
         if !isDragging {
-            state.headerHovered = false
+            resetHeaderHover()
+            headerFeedbackTask?.cancel()
+            state.pressedHeaderButton = nil
             isDragging = true
             dragStartMouseX = origin.x
             dragStartOffset = state.geometry.horizontalOffset
@@ -685,18 +698,46 @@ final class NotchPanelController: ObservableObject {
         hoverTimer = timer
     }
 
+    private func headerButton(at point: NSPoint) -> HeaderButton? {
+        // Match the live header's presented width, including compact pill transitions.
+        let g = state.geometry
+        if g.headerInteractionRect(in: interactionFrame).contains(point) { return .today }
+        if g.blockInteractionRect(in: interactionFrame).contains(point) { return .month }
+        return nil
+    }
+
+    private func resetHeaderHover(at point: NSPoint = NSEvent.mouseLocation) {
+        if state.headerHovered { state.headerHovered = false }
+        if state.blockHovered { state.blockHovered = false }
+        previousHeaderPoint = point
+        previousHeaderButton = headerButton(at: point)
+    }
+
+    private func updateHeaderHover(at point: NSPoint) {
+        guard state.expanded, motion == nil, acceptsClick else {
+            resetHeaderHover(at: point)
+            return
+        }
+        let button = headerButton(at: point)
+        // Timer ticks and moving window edges are not deliberate pointer entry.
+        if point != previousHeaderPoint, button != previousHeaderButton {
+            state.headerHovered = button == .today
+            state.blockHovered = button == .month
+        }
+        previousHeaderPoint = point
+        previousHeaderButton = button
+    }
+
     private func pollCursor(at point: NSPoint = NSEvent.mouseLocation) {
         guard !isDragging else {
             state.headerHovered = false
+            state.blockHovered = false
             state.hoveredTaskID = nil
             return
         }
         let g = state.geometry
         let visibleFrame = interactionFrame
-        let hovered = state.expanded && g.headerInteractionRect(in: visibleFrame).contains(point)
-        let blockHovered = state.expanded && g.blockInteractionRect(in: visibleFrame).contains(point)
-        if state.headerHovered != hovered { state.headerHovered = hovered }
-        if state.blockHovered != blockHovered { state.blockHovered = blockHovered }
+        updateHeaderHover(at: point)
         if motion != nil {
             panel.ignoresMouseEvents = !visibleFrame.contains(point)
             if state.expanded && !state.pinned {

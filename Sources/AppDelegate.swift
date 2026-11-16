@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Canvas hosts only the requested view; do not start global panels or EventKit.
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
         if demoMode { store.loadDemoData(taskCount: 30, completedCount: 6) } else { store.start() }
         controller = NotchPanelController(store: store, defaults: appDefaults)
         controller.onDataChanged = { [weak self] in self?.rebuildMenu() }

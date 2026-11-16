@@ -1,0 +1,56 @@
+// !$*UTF8*$!
+{
+archiveVersion = 1;
+classes = {};
+objectVersion = 56;
+objects = {
+000000000000000000000013 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate.swift"; sourceTree = "<group>"; };
+000000000000000000000014 = { isa = PBXBuildFile; fileRef = 000000000000000000000013; };
+000000000000000000000015 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Geometry.swift"; sourceTree = "<group>"; };
+000000000000000000000016 = { isa = PBXBuildFile; fileRef = 000000000000000000000015; };
+000000000000000000000017 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoginItemManager.swift"; sourceTree = "<group>"; };
+000000000000000000000018 = { isa = PBXBuildFile; fileRef = 000000000000000000000017; };
+000000000000000000000019 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotchPanelController.swift"; sourceTree = "<group>"; };
+00000000000000000000001A = { isa = PBXBuildFile; fileRef = 000000000000000000000019; };
+00000000000000000000001B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelFeedback.swift"; sourceTree = "<group>"; };
+00000000000000000000001C = { isa = PBXBuildFile; fileRef = 00000000000000000000001B; };
+00000000000000000000001D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelRenderCache.swift"; sourceTree = "<group>"; };
+00000000000000000000001E = { isa = PBXBuildFile; fileRef = 00000000000000000000001D; };
+00000000000000000000001F = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelView.swift"; sourceTree = "<group>"; };
+000000000000000000000020 = { isa = PBXBuildFile; fileRef = 00000000000000000000001F; };
+000000000000000000000021 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PreviewContent.swift"; sourceTree = "<group>"; };
+000000000000000000000022 = { isa = PBXBuildFile; fileRef = 000000000000000000000021; };
+000000000000000000000023 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ReminderMutation.swift"; sourceTree = "<group>"; };
+000000000000000000000024 = { isa = PBXBuildFile; fileRef = 000000000000000000000023; };
+000000000000000000000025 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsView.swift"; sourceTree = "<group>"; };
+000000000000000000000026 = { isa = PBXBuildFile; fileRef = 000000000000000000000025; };
+000000000000000000000027 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TaskStore.swift"; sourceTree = "<group>"; };
+000000000000000000000028 = { isa = PBXBuildFile; fileRef = 000000000000000000000027; };
+000000000000000000000029 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
+00000000000000000000002A = { isa = PBXBuildFile; fileRef = 000000000000000000000029; };
+00000000000000000000002B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "main.swift"; sourceTree = "<group>"; };
+00000000000000000000002C = { isa = PBXBuildFile; fileRef = 00000000000000000000002B; };
+00000000000000000000002D = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+00000000000000000000002E = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Demo-Info.plist"; sourceTree = "<group>"; };
+000000000000000000000004 = { isa = PBXGroup; children = (000000000000000000000013,000000000000000000000015,000000000000000000000017,000000000000000000000019,00000000000000000000001B,00000000000000000000001D,00000000000000000000001F,000000000000000000000021,000000000000000000000023,000000000000000000000025,000000000000000000000027,000000000000000000000029,00000000000000000000002B,); path = Sources; sourceTree = "<group>"; };
+000000000000000000000005 = { isa = PBXGroup; children = (00000000000000000000002D,); path = Resources; sourceTree = "<group>"; };
+00000000000000000000002F = { isa = PBXGroup; children = (00000000000000000000002E,); path = Xcode; sourceTree = "<group>"; };
+000000000000000000000007 = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Glitter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+000000000000000000000006 = { isa = PBXGroup; children = (000000000000000000000007,); name = Products; sourceTree = "<group>"; };
+000000000000000000000003 = { isa = PBXGroup; children = (000000000000000000000004,000000000000000000000005,00000000000000000000002F,000000000000000000000006,); sourceTree = "<group>"; };
+000000000000000000000008 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000014,000000000000000000000016,000000000000000000000018,00000000000000000000001A,00000000000000000000001C,00000000000000000000001E,000000000000000000000020,000000000000000000000022,000000000000000000000024,000000000000000000000026,000000000000000000000028,00000000000000000000002A,00000000000000000000002C,); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000009 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000000A = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000000D = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; ARCHS = arm64; CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_COMPILATION_MODE = singlefile; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG XCODE_BUILD"; DEBUG_INFORMATION_FORMAT = "dwarf"; ENABLE_TESTABILITY = YES; ONLY_ACTIVE_ARCH = YES; }; };
+000000000000000000000010 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_NAME = Glitter; PRODUCT_BUNDLE_IDENTIFIER = com.glitter.notch; INFOPLIST_FILE = "Resources/Info.plist"; GENERATE_INFOPLIST_FILE = NO; CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = NO; ENABLE_PREVIEWS = YES; COMBINE_HIDPI_IMAGES = YES; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks"); }; };
+00000000000000000000000E = { isa = XCBuildConfiguration; name = Demo; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; ARCHS = arm64; CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_COMPILATION_MODE = singlefile; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG XCODE_BUILD"; DEBUG_INFORMATION_FORMAT = "dwarf"; ENABLE_TESTABILITY = YES; ONLY_ACTIVE_ARCH = YES; }; };
+000000000000000000000011 = { isa = XCBuildConfiguration; name = Demo; buildSettings = { PRODUCT_NAME = Glitter; PRODUCT_BUNDLE_IDENTIFIER = com.glitter.notch.demo; INFOPLIST_FILE = "Xcode/Demo-Info.plist"; GENERATE_INFOPLIST_FILE = NO; CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = NO; ENABLE_PREVIEWS = YES; COMBINE_HIDPI_IMAGES = YES; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks"); }; };
+00000000000000000000000F = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; ARCHS = arm64; CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "XCODE_BUILD"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_TESTABILITY = NO; ONLY_ACTIVE_ARCH = NO; }; };
+000000000000000000000012 = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_NAME = Glitter; PRODUCT_BUNDLE_IDENTIFIER = com.glitter.notch; INFOPLIST_FILE = "Resources/Info.plist"; GENERATE_INFOPLIST_FILE = NO; CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "-"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = NO; ENABLE_PREVIEWS = YES; COMBINE_HIDPI_IMAGES = YES; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks"); }; };
+00000000000000000000000B = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000000D,00000000000000000000000E,00000000000000000000000F,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+00000000000000000000000C = { isa = XCConfigurationList; buildConfigurations = (000000000000000000000010,000000000000000000000011,000000000000000000000012,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+000000000000000000000002 = { isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000000C; buildPhases = (000000000000000000000008,000000000000000000000009,00000000000000000000000A,); buildRules = (); dependencies = (); name = Glitter; productName = Glitter; productReference = 000000000000000000000007; productType = "com.apple.product-type.application"; };
+000000000000000000000001 = { isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = 00000000000000000000000B; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base,); mainGroup = 000000000000000000000003; productRefGroup = 000000000000000000000006; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002,); };
+};
+rootObject = 000000000000000000000001;
+}

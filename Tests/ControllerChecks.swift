@@ -56,8 +56,12 @@ extension NotchPanelController {
         monthGeometry.showingMonth = true
         check(abs(monthGeometry.expandedHeight - monthGeometry.monthTop - monthGeometry.monthViewportHeight - 12) < 1,
               "Month returns to its original bottom padding")
-        check(NotchGeometry.taskRowPadding == 2.5 && reserved.monthHeadingGap == 8,
-              "Outer padding changes preserve task density and internal calendar spacing")
+        check(reserved.taskHeight(TrackedTask(id: "single-line", title: "A reminder", dueDay: nil,
+                                             completedDay: nil, isCompleted: false)) == 26,
+              "Single-line reminders retain the workspace 26pt hit area")
+        check(reserved.taskHeight(TrackedTask(id: "wrapped", title: String(repeating: "Long reminder title ", count: 8),
+                                             dueDay: nil, completedDay: nil, isCompleted: false)) > 26,
+              "Wrapped reminders grow beyond 26pt to retain their full titles")
         check(reserved.horizontalPadding == reserved.headerPadding, "Body and header share horizontal content insets")
         check(abs(reserved.gridOriginX - reserved.headerPadding) < 0.001,
               "Calendar leading edge aligns with the score")
@@ -122,15 +126,15 @@ extension NotchPanelController {
         check(c.state.headerHovered && !c.state.blockHovered, "Score hover stays isolated")
         let leftHover = capture("left-button-hover")
         let inner = c.state.geometry.headerButtonWidth
-        check(sample(leftHover, x: 2, y: 2)[0] > 35 && sample(leftHover, x: 2, y: score.height - 2)[0] > 35,
-              "Left hover has square outer corners and zero margin")
+        check(sample(leftHover, x: 2, y: 2)[0] < 20 && sample(leftHover, x: 2, y: score.height - 2)[0] < 20,
+              "Score hover leaves the large button background black")
         check(sample(leftHover, x: inner - 1, y: 1)[0] < 20 && sample(leftHover, x: inner - 1, y: score.height - 1)[0] < 20,
               "Left hover has matching upper and lower inner rounded corners")
         c.pollCursor(at: NSPoint(x: block.midX, y: block.midY))
         check(c.state.blockHovered && !c.state.headerHovered, "Block has separate hover feedback")
         let rightHover = capture("right-button-hover")
-        check(sample(rightHover, x: c.panel.frame.width - 3, y: 2)[0] > 35,
-              "Right hover reaches software right edge")
+        check(sample(rightHover, x: c.panel.frame.width - 3, y: 2)[0] < 20,
+              "Cube hover leaves the large button background black")
         check(sample(rightHover, x: c.panel.frame.width - inner + 1, y: score.height - 1)[0] < 20,
               "Right hover mirrors the inner lower rounded corner")
         c.pollCursor(at: NSPoint(x: c.panel.frame.midX, y: score.midY))

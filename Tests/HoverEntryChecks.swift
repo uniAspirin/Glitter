@@ -59,7 +59,10 @@ extension NotchPanelController {
         try? await Task.sleep(nanoseconds: 100_000_000)
         check(store.expandedMode == "today" && c.state.blockHovered, "Cube hover highlights without switching")
         c.state.onSelectMonth?()
+        check(c.state.pressedHeaderButton == .month, "Accepted Month click acknowledges only the cube")
         finish()
+        try? await Task.sleep(for: .milliseconds(180))
+        check(c.state.pressedHeaderButton == nil, "Click acknowledgement clears shortly after activation")
         check(store.expandedMode == "month", "Clicking the cube opens Month")
         c.pollCursor(at: NSPoint(x: left.midX, y: left.midY))
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -105,6 +108,50 @@ extension NotchPanelController {
         finish()
         c.expand()
         check(store.expandedMode == "month", "An already open Month stays visible until closed or explicitly changed")
+
+        // Both an offset notch and an external screen expand from the compact pill.
+        for screen in [TestScreen(id: 3001, frame: NSRect(x: 0, y: 0, width: 1440, height: 900), notch: 185),
+                       TestScreen(id: 3002, frame: NSRect(x: 0, y: 0, width: 1920, height: 1080))] {
+            close(on: "today")
+            c.screensChanged([screen])
+            c.state.geometry.horizontalOffset = 400
+            c.refreshGeometry()
+            let folded = c.state.geometry.collapsedRect
+            let pointer = NSPoint(x: folded.midX + 1, y: folded.midY)
+            c.pollCursor(at: pointer)
+            if let opening = c.motion {
+                for step in 0...20 {
+                    c.advanceAnimation(at: opening.started + opening.duration * Double(step) / 20)
+                    let visible = c.interactionFrame
+                    let left = c.state.geometry.headerInteractionRect(in: visible)
+                    let right = c.state.geometry.blockInteractionRect(in: visible)
+                    check(left.maxX <= right.minX + 0.000001, "Pill header hover regions never overlap during expansion")
+                    check(left.width == visible.width / 2 && right.width == visible.width / 2,
+                          "Pill header hit regions follow the currently presented width")
+                    c.pollCursor(at: pointer)
+                    check(!c.state.blockHovered && !c.state.headerHovered,
+                          "Pill expansion keeps both buttons quiet, including its endpoint")
+                }
+            } else {
+                preconditionFailure("Pill hover must start an expansion animation")
+            }
+            finish()
+            // Supply the endpoint cursor explicitly; these fixtures do not move the real cursor.
+            c.resetHeaderHover(at: pointer)
+            c.pollCursor(at: pointer)
+            c.pollCursor(at: NSPoint(x: pointer.x + 2, y: pointer.y))
+            check(!c.state.blockHovered && !c.state.headerHovered,
+                  "Remaining inside the endpoint button does not arm its highlight")
+            let outside = NSPoint(x: c.panel.frame.midX, y: c.panel.frame.minY + 5)
+            c.pollCursor(at: outside)
+            c.pollCursor(at: pointer)
+            check(c.state.blockHovered && !c.state.headerHovered,
+                  "Leaving and re-entering the endpoint button highlights only that button")
+            c.isDragging = true
+            c.pollCursor(at: pointer)
+            check(!c.state.headerHovered && !c.state.blockHovered, "Dragging clears both header highlights")
+            c.isDragging = false
+        }
 
         for legacyValue in [false, true] {
             let legacy = MemoryDefaults()

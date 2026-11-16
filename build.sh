@@ -3,15 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="build/Glitter.app"
-# Keep the original identity for existing preferences and login-item settings.
-IDENTIFIER="com.sand.notch"
+IDENTIFIER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Resources/Info.plist)
 DEMO=false
 if [[ $# -gt 1 ]]; then
   echo "Usage: ./build.sh [--demo]" >&2
   exit 1
 elif [[ "${1:-}" == "--demo" ]]; then
   APP="build/Glitter-Demo.app"
-  IDENTIFIER="com.sand.notch.demo"
+  IDENTIFIER="${IDENTIFIER}.demo"
   DEMO=true
 elif [[ $# -gt 0 ]]; then
   echo "Usage: ./build.sh [--demo]" >&2

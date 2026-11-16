@@ -2,6 +2,20 @@
 
 Glitter 1.2 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
+## Xcode development / Xcode 开发
+
+Open `Glitter.xcodeproj` directly (File → Open), rather than opening the repository as a folder. The native macOS app target shares the existing `Sources/` files and keeps the script workflow available. Requires macOS 14+ on Apple Silicon; local builds use ad-hoc signing without a developer account.
+
+- **Glitter Demo** → **My Mac** → **⌘R**: run the full notch app with fictional tasks and in-memory preferences. This scheme uses the Demo build configuration and `Xcode/Demo-Info.plist`, including its separate `com.glitter.notch.demo` identity.
+- **Glitter** → **My Mac** → **⌘R**: run with real Reminders. Grant permission and select lists when needed. Stop debugging with **⌘.**.
+- Open `Sources/PreviewContent.swift`, enable **Editor → Canvas** (**⌥⌘↩**), then **Resume** (**⌥⌘P**). Select Today, Month, Collapsed, Empty List or Long Task. Live preview supports completing fake tasks and switching Today/Month with the header buttons.
+- Preview fixtures use `DemoDefaults` and existing `loadDemoData` helpers. The preview process skips application-level initialization, so Canvas does not create the global notch panel or request Reminders access.
+- Canvas checks SwiftUI content and layout. Use **Glitter Demo** for actual screen placement, hover expansion, native window animation and Settings.
+
+中文：先打开原生工程，再选 **Glitter Demo / My Mac**。**⌘B** 编译，**⌘R** 运行，**⌘.** 停止。修改 SwiftUI 后可在 Canvas 查看假数据界面；涉及刘海位置和鼠标悬停时运行 Demo。预览代码仅在 Xcode 的 Debug / Demo 配置编译；原来的脚本构建不需要加载 Preview 宏插件。新增源码文件时，请同时加入 Glitter target 的 Compile Sources。
+
+The project uses Debug / Demo / Release configurations. Release omits preview fixtures. Existing script-based checks remain available under `Tests/run.sh`; they are not configured as an Xcode test target.
+
 ## Build and run
 
 ```bash
@@ -54,9 +68,13 @@ Day includes reminders due today and overdue reminders that remain unfinished or
 
 Month is recalculated from current reminder records, without daily history snapshots. Completing overdue work credits today and leaves the missed day incomplete. Source edits can change historical results. Eight gold levels show positive completion, with the brightest gold and glow reserved for full completion. Zero completion, no tasks and future dates use `#141414`.
 
-The app retains the `com.sand.notch` bundle identifier and existing preference keys for continuity with previous installations. List selections persist across launches. Every expansion starts with Today, regardless of entry position or the previously open page. A collapsed panel prepares Today before expansion. Re-entry during collapse retargets the animation toward Today from its current presentation frame. Click the top-right cube to enter Month and the score to return to Today. Hovering the buttons highlights them. Day fits its full task content up to the Month height, then scrolls vertically with overlay scrollbars. View selection is handled by the header buttons.
+The app uses `com.glitter.notch`; Demo uses `com.glitter.notch.demo`. The production identifier is defined in `Resources/Info.plist`, and the build script derives the Demo and signing identifiers from it. Builds using the former `com.sand.notch` identity have separate preferences, Reminders permission and login-item registration. Existing preference keys are unchanged, but settings are not automatically migrated: choose lists and interface preferences again, grant Reminders access and re-enable Launch at Login as needed when first using the new identity. Reminder data itself remains in Apple Reminders. List selections persist across launches under the new identity.
 
-Window transitions use native display-link timing and cached view snapshots. Hover expansion and collapse take 120 ms, with a separate 140 ms grace period before collapse. Page transitions take 100 ms. The display link requests the screen's maximum refresh rate during motion and stays paused between transitions. Day and Month view trees and snapshot layers remain in memory for reuse. Selecting a page reuses measured geometry and updates presentation without publishing task-data changes or rebuilding the menu. Data and display changes refresh the cached snapshots. Scrollable Day transitions capture the retained live viewport so the same rows appear before and after the layer handoff. The live task views resume after the transition. Reduce Motion is respected.
+Every expansion starts with Today, regardless of entry position or the previously open page. A collapsed panel prepares Today before expansion. Re-entry during collapse retargets the animation toward Today from its current presentation frame. Click the top-right cube to enter Month and the score to return to Today. Header buttons stay quiet during expansion. At the animation endpoint the controller records the cursor position; only subsequent pointer entry highlights the score or cube itself. A cursor already inside must leave and re-enter. Accepted clicks briefly dim and shrink the symbol for 100 ms; dragging and the existing 150 ms post-drag guard suppress navigation. Day fits its full task content up to the Month height, then scrolls vertically with overlay scrollbars. View selection is handled by the header buttons. Horizontal padding and expanded content's top and bottom padding are 12 pt. On notched displays, the collapsed height matches the physical notch height.
+
+Window transitions use native display-link timing and cached view snapshots. Hover expansion uses a spring with response 0.36 and damping ratio 0.76; collapse uses response 0.26 and damping ratio 0.96, with a separate 300 ms grace period before collapse. Smooth Slide page transitions take 160 ms independently of the container spring. The display link requests the screen's maximum refresh rate during motion and stays paused between transitions. Day and Month view trees and snapshot layers remain in memory for reuse. Selecting a page reuses measured geometry and updates presentation without publishing task-data changes or rebuilding the menu. Data and display changes refresh the cached snapshots. Scrollable Day transitions capture the retained live viewport so the same rows appear before and after the layer handoff. The live task views resume after the transition. Reduce Motion is respected. Task completion uses an 80 ms acknowledgement, 45 ms fade-out, 140 ms movement and 80 ms fade-in, retaining 120 ms of interaction protection after completion.
+
+Single-line task rows are 26 pt tall with 4 pt of vertical padding on each side. Wrapped titles increase the row height to fit their content. Header hover is owned by the panel controller, using the current presented width for both button regions during pill expansion and collapse.
 
 ## Package a DMG
 

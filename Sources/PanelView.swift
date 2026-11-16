@@ -3,6 +3,10 @@ import SwiftUI
 // Select the property-wrapper type; the CLT SDK also exports an unavailable State macro.
 private typealias ViewState<Value> = SwiftUI.State<Value>
 
+enum HeaderButton {
+    case today, month
+}
+
 @MainActor
 final class PanelState: ObservableObject {
     @Published var expanded = false
@@ -13,6 +17,7 @@ final class PanelState: ObservableObject {
     private(set) var monthProgress: CGFloat
     @Published var headerHovered = false
     @Published var blockHovered = false
+    @Published var pressedHeaderButton: HeaderButton?
     @Published var hoveredTaskID: String?
 
     var onOpenSettings: (() -> Void)?
@@ -192,37 +197,31 @@ struct PanelHeaderView: View {
             if state.expanded {
                 Button(action: { state.onSelectDay?() }) {
                     headerScore
+                        .brightness(state.headerHovered ? 0.10 : 0)
+                        .scaleEffect(state.pressedHeaderButton == .today ? 0.94 : 1, anchor: .leading)
+                        .opacity(state.pressedHeaderButton == .today ? 0.78 : 1)
+                        .animation(.easeOut(duration: 0.08), value: state.headerHovered)
+                        .animation(.easeOut(duration: 0.08), value: state.pressedHeaderButton)
                         .padding(.leading, g.headerPadding)
                         .frame(width: g.headerButtonWidth(in: width), height: g.collapsedHeight, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background {
-                    UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
-                                           bottomTrailingRadius: g.headerCornerRadius,
-                                           topTrailingRadius: g.headerCornerRadius, style: .circular)
-                        .fill(Color.white.opacity(state.headerHovered ? 0.18 : 0))
-                }
-                .animation(.easeOut(duration: 0.08), value: state.headerHovered)
-                .onHover { state.headerHovered = state.expanded && $0 }
                 .help("Show Day")
                 .accessibilityLabel("Show Day, today \(store.todayStat.done) of \(store.todayStat.due) completed")
                 Spacer(minLength: 0)
                 Button(action: { state.onSelectMonth?() }) {
                     statusBlock
+                        .brightness(state.blockHovered ? 0.10 : 0)
+                        .scaleEffect(state.pressedHeaderButton == .month ? 0.94 : 1, anchor: .trailing)
+                        .opacity(state.pressedHeaderButton == .month ? 0.78 : 1)
+                        .animation(.easeOut(duration: 0.08), value: state.blockHovered)
+                        .animation(.easeOut(duration: 0.08), value: state.pressedHeaderButton)
                         .padding(.trailing, g.headerPadding)
                         .frame(width: g.headerButtonWidth(in: width), height: g.collapsedHeight, alignment: .trailing)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background {
-                    UnevenRoundedRectangle(topLeadingRadius: g.headerCornerRadius,
-                                           bottomLeadingRadius: g.headerCornerRadius,
-                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .circular)
-                        .fill(Color.white.opacity(state.blockHovered ? 0.18 : 0))
-                }
-                .animation(.easeOut(duration: 0.08), value: state.blockHovered)
-                .onHover { state.blockHovered = state.expanded && $0 }
                 .help("Show Month")
                 .accessibilityLabel("Show Month")
             } else {
@@ -398,7 +397,7 @@ private struct TaskRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minHeight: NotchGeometry.taskRowHeight, alignment: .topLeading)
+        .frame(minHeight: NotchGeometry.taskRowHeight, alignment: .leading)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, NotchGeometry.taskRowPadding)
         .frame(height: rowHeight, alignment: .topLeading)

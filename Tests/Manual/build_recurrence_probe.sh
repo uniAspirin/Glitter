@@ -18,7 +18,7 @@ python3 - "$APP" "$PWD/build/review/recurrence-api/$REPORT" "$WRITER_MODE" <<'PY
 import plistlib, pathlib, sys
 app = pathlib.Path(sys.argv[1])
 info = {
-    'CFBundleIdentifier': 'com.sand.notch.recurrence-probe',
+    'CFBundleIdentifier': 'com.glitter.notch.recurrence-probe',
     'CFBundleName': 'Glitter API Test',
     'CFBundleDisplayName': 'Glitter API Test',
     'CFBundleExecutable': 'RecurrenceProbe',
