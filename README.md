@@ -1,8 +1,6 @@
 # Glitter
 
-**_Turn your days into gold._**
-
-<a href="#en">English</a> · <a href="#cn">简体中文</a>
+<!-- <a href="#en">English</a> · <a href="#cn">简体中文</a> -->
 
 <img src="docs/images/today.gif" width="1200" alt="Today's tasks in Glitter">
 
@@ -20,7 +18,7 @@ TodoList 软件成功地解决了任务管理问题，但当用户切出软件�
 
 **吸引注意力 => 保护注意力 => 直接行动**
 
-<a id="en"></a>
+<!-- <a id="en"></a>
 
 ## English
 
@@ -59,7 +57,7 @@ Glitter 是一个小型 macOS 应用，将 Apple Reminders 中的任务放在刘
 - **查看今天。** 每次悬停展开都显示 Today，点击右上角方块进入 Month。
 - **选择操作入口。** 在设置中选择是否显示菜单栏图标。刘海右键菜单提供设置、打开跟踪列表和退出三项操作。
 
-查看[隐私说明与检查记录](docs/PRIVACY.md)。
+查看[隐私说明与检查记录](docs/PRIVACY.md)。 -->
 
 ### 下载
 
