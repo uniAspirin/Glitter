@@ -16,7 +16,7 @@ TodoList 软件成功地解决了任务管理问题，但当用户切出软件�
 
 ### 下载
 
-下载 [Glitter 1.1.1](https://github.com/uniAspirin/Glitter/releases/download/v1.1.1/Glitter-1.1.1.dmg)。支持 macOS 14 及以上版本，需要 Apple Silicon 芯片。
+下载 [Glitter 1.2](https://github.com/uniAspirin/Glitter/releases/download/v1.2/Glitter-1.2.dmg)。支持 macOS 14 及以上版本，需要 Apple Silicon 芯片。
 
 打开 DMG，将 Glitter 拖入 Applications。
 

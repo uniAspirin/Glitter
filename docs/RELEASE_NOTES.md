@@ -2,27 +2,31 @@
 
 ## English
 
-- Every hover expansion opens Today, including re-entry while the panel is closing.
-- Click the top-right cube for Month and the score to return to Today.
-- Simplified Settings and menu bar options. View navigation uses the header buttons.
-- Day fits its task content up to the Month height and scrolls for longer lists, with aligned text and overlay scrollbars.
-- Page transitions take 100 ms and preserve the Day scroll position. Cached pages and paused display callbacks reduce repeated work.
+- Hovering always opens Today, including when re-entering a closing panel. Click the top-right square for Month and the score to return to Today.
+- Fixed alternating button highlights as the compact panel expands away from the notch or on a display without one. The header stays quiet while opening. Moving into a button after opening subtly highlights its symbol, and clicks give brief feedback.
+- The panel opens and closes with a spring and waits 300 ms after the pointer leaves. The 160 ms page slide preserves the Today scroll position and reuses cached views.
+- The collapsed panel matches the physical notch height. Expanded content uses 12 pt insets, and single-line task rows are 26 pt tall. Longer lists scroll within the Month height.
+- Completing a task animates faster while retaining protection against accidental clicks. Keep Expand is available in the development Demo.
 
-Validated with 669 automated checks using fictional tasks.
+Validated with 1,596 automated checks using fictional tasks.
 
-Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple.
+Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple. macOS may require approval under System Settings → Privacy & Security → Open Anyway.
+
+When upgrading from 1.1.1 or earlier, quit Glitter before replacing it. The new bundle identifier requires granting Reminders access and choosing your tracked lists again. Set your other Glitter preferences again as needed. Your reminders stay in Apple Reminders.
 
 ## 简体中文
 
-- 每次悬停展开都进入 Today，收起过程中重新移入也会回到 Today。
-- 点击右上角方块进入 Month，点击分数返回 Today。
-- 精简设置和菜单栏选项，视图通过顶部按钮切换。
-- Day 高度随任务内容变化，上限与 Month 一致。较长列表直接滚动，文字保持对齐，滚动条覆盖显示。
-- 页面切换动画为 100 ms，并保留 Day 的滚动位置。复用页面缓存，空闲时暂停刷新回调。
+- 每次悬停展开都进入 Today，收起过程中重新移入也会回到 Today。点击右上角方块进入 Month，点击分数返回 Today。
+- 修复非刘海位置或无刘海屏幕上，药丸展开时顶部按钮交替闪烁的问题。展开时顶部保持安静，展开后移入按钮才轻微提亮图标或文字，点击时有短暂反馈。
+- 展开和收起采用弹簧动画，鼠标移出后等待 300 ms。页面滑动为 160 ms，保留 Today 的滚动位置并复用页面缓存。
+- 折叠高度贴合真实刘海。展开内容留白为 12 pt，单行任务高度为 26 pt。较长列表在 Month 的高度范围内滚动。
+- 加快任务完成动画，保留误点保护。Keep Expand 可在开发 Demo 中使用。
 
-通过 669 项假数据自动检查。
+通过 1,596 项假数据自动检查。
 
-支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。
+支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。macOS 如阻止首次启动，可在系统设置 → 隐私与安全性中选择“仍要打开”。
+
+从 1.1.1 或更早版本升级时，请先退出旧版再替换。应用标识已更新，需要重新授权提醒事项、选择跟踪列表，并按需重新配置其他偏好。提醒事项数据仍保存在 Apple 提醒事项中。
 
 # Glitter 1.1.1
 
