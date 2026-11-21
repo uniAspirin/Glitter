@@ -9,6 +9,8 @@ enum Theme {
               green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255, opacity: 1)
     }
     static let gold = palette[7]
+    static let overdueHex: UInt32 = 0xFF453A
+    static let overdue = Color(.sRGB, red: 255 / 255, green: 69 / 255, blue: 58 / 255, opacity: 1)
     static let idle = Color(.sRGB, red: 20 / 255, green: 20 / 255, blue: 20 / 255, opacity: 1)
     static let blockStroke = Color.white.opacity(0.06)
     static let primary = Color.white.opacity(0.94)

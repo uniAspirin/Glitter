@@ -169,5 +169,48 @@ final class CraftTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 60_000_000)
         XCTAssertEqual(resolutions.value, 2)
         XCTAssertEqual(cancellations.value, 1)
+
+        // With no external strong reference outside `withCheckedThrowingContinuation`,
+        // async callbacks still resolve `ReminderFetchRequest` and release cleanly afterwards.
+        weak var weakAsyncRequest: ReminderFetchRequest?
+        do {
+            let asyncResult: Int = try await withCheckedThrowingContinuation { continuation in
+                let req = ReminderFetchRequest(timeout: 0.06) { result in
+                    continuation.resume(with: result.map(\.count))
+                }
+                weakAsyncRequest = req
+                req.attachCancellation { cancellations.increment() }
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.015) {
+                    req.finish(.success([]))
+                }
+            }
+            XCTAssertEqual(asyncResult, 0)
+        } catch {
+            XCTFail("Unexpected error on async completion: \(error)")
+        }
+        XCTAssertEqual(cancellations.value, 1)
+        try? await Task.sleep(nanoseconds: 90_000_000)
+        XCTAssertNil(weakAsyncRequest)
+
+        // When callbacks never arrive and no external strong reference exists,
+        // timeout still resumes the continuation with `.readFailure`, cancels, and releases.
+        weak var weakTimeoutRequest: ReminderFetchRequest?
+        do {
+            let _: [String] = try await withCheckedThrowingContinuation { continuation in
+                let req = ReminderFetchRequest(timeout: 0.025) { result in
+                    continuation.resume(with: result.map { $0.map(\.calendarItemIdentifier) })
+                }
+                weakTimeoutRequest = req
+                req.attachCancellation { cancellations.increment() }
+            }
+            XCTFail("Expected ReminderMutationError.readFailure on timeout")
+        } catch let error as ReminderMutationError {
+            XCTAssertEqual(error, .readFailure)
+        } catch {
+            XCTFail("Unexpected error type on timeout: \(error)")
+        }
+        XCTAssertEqual(cancellations.value, 2)
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertNil(weakTimeoutRequest)
     }
 }

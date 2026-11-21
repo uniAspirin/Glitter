@@ -73,32 +73,34 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .controlSize(.regular)
                     .frame(maxWidth: 220, alignment: .trailing)
                 } else {
                     Text(label(for: displays.first))
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .padding(.top, 12)
+            .frame(minHeight: 22)
+            .padding(.top, 10)
 
             HStack {
                 Text(l10n.settingsPanelPosition).font(.system(size: 13))
                 Spacer()
                 Button(l10n.settingsCenter) { controller.resetOffset() }
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .controlSize(.regular)
             }
-            .padding(.top, 12)
+            .frame(minHeight: 22)
+            .padding(.top, 10)
 
             switchRow(l10n.settingsShowMenuBarIcon, isOn: Binding(
                 get: { controller.showsMenuBarIcon },
                 set: { controller.setMenuBarIconVisible($0) }
             ))
-            .padding(.top, 12)
+            .padding(.top, 10)
 
             HStack {
                 Text(l10n.settingsLanguage).font(.system(size: 13))
@@ -113,11 +115,12 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .controlSize(.regular)
                 .frame(maxWidth: 220, alignment: .trailing)
             }
-            .padding(.top, 12)
+            .frame(minHeight: 22)
+            .padding(.top, 10)
 
             Divider().padding(.vertical, 18)
             title(l10n.settingsStartup)
@@ -126,7 +129,7 @@ struct SettingsView: View {
                 set: { enabled in Task { await loginItems.setEnabled(enabled) } }
             ))
             .disabled(loginItems.isDemo || loginItems.isUpdating)
-            .padding(.top, 8)
+            .padding(.top, 10)
             subtitle(loginItems.isDemo ? l10n.settingsStartupDemoHint : l10n.settingsStartupHint)
             if loginItems.needsApproval {
                 subtitle(l10n.settingsApprovalHint)
@@ -183,10 +186,13 @@ struct SettingsView: View {
                     .frame(width: 14, height: 14)
                 Text(cal.title)
                     .font(.system(size: 13))
-                Spacer()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
                 Text(cal.source?.title ?? "")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -214,6 +220,7 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .fixedSize()
         }
+        .frame(minHeight: 22)
         .frame(maxWidth: .infinity)
     }
 

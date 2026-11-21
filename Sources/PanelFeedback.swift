@@ -1,7 +1,7 @@
 import AppKit
 
 enum PanelAction: Equatable {
-    case settings, refresh, openList, retryCompletion
+    case settings, refresh, openList, retryCompletion, retryUndo
 }
 
 /// The same explanation is used by Day, Month, Demo fixtures and accessibility.
@@ -34,4 +34,5 @@ enum CompletionTiming {
     static let fadeIn: Double = 0.08
     static let protection: UInt64 = 120_000_000
     static let spinnerDelay: UInt64 = 180_000_000
+    static let undoWindow: TimeInterval = 5.0
 }

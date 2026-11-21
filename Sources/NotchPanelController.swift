@@ -157,14 +157,7 @@ final class NotchPanelController: ObservableObject {
         if display == nil {
             geometry.horizontalOffset = savedOffset
         }
-        geometry.showsCalendar = store.hasStatistics
-        geometry.noticeHeight = store.panelNotice.map { $0.height(width: geometry.contentWidth, compact: true) + geometry.padding } ?? 0
-        if store.hasStatistics && !store.todayTasks.isEmpty {
-            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary,
-                                  untitledFallback: store.l10n.untitledReminder)
-        } else {
-            geometry.measureMessage(store.panelMessage)
-        }
+        Self.configureGeometry(&geometry, store: store)
         state = PanelState(geometry: geometry, mode: store.expandedMode)
 
         panel = NotchPanel(
@@ -270,6 +263,7 @@ final class NotchPanelController: ObservableObject {
     func collapse() {
         guard state.expanded, !state.pinned, !isDragging else { return }
         cancelScheduledCollapse()
+        store.setUndoHoverPaused(false)
         state.expanded = false
         state.headerHovered = false
         state.blockHovered = false
@@ -868,6 +862,19 @@ final class NotchPanelController: ObservableObject {
                                           scoreText: "\(stat.done)/\(stat.due)",
                                           showingMonth: store.expandedMode == "month",
                                           referenceNotchWidth: NotchGeometry.referenceNotchWidth(in: displays) ?? state.geometry.notchWidth)
+        Self.configureGeometry(&geometry, store: store)
+        if isDragging {
+            geometry.horizontalOffset = geometry.clampedOffset(offset)
+        }
+
+        if state.geometry != geometry {
+            state.geometry = geometry
+        }
+        updateWindowFrame(expanded: state.expanded, animated: animated)
+        if !panel.isVisible { show() }
+    }
+
+    private static func configureGeometry(_ geometry: inout NotchGeometry, store: TaskStore) {
         geometry.showsCalendar = store.hasStatistics
         geometry.noticeHeight = store.panelNotice.map { $0.height(width: geometry.contentWidth, compact: true) + geometry.padding } ?? 0
         if store.hasStatistics && !store.todayTasks.isEmpty {
@@ -876,13 +883,6 @@ final class NotchPanelController: ObservableObject {
         } else {
             geometry.measureMessage(store.panelMessage)
         }
-        if isDragging {
-            geometry.horizontalOffset = geometry.clampedOffset(offset)
-        }
-
-        state.geometry = geometry
-        updateWindowFrame(expanded: state.expanded, animated: animated)
-        if !panel.isVisible { show() }
     }
 
     private static func display(for id: CGDirectDisplayID?, displays: [DisplayMetrics],

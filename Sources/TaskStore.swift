@@ -3,6 +3,14 @@ import Combine
 import EventKit
 import Foundation
 
+struct UndoCandidate: Equatable, Sendable {
+    let taskID: String
+    let calendarID: String
+    let title: String
+    let dueDate: Date?
+    let day: Date
+}
+
 /// Reminders is the sole source; completion writes are explicit user actions.
 @MainActor
 final class TaskStore: ObservableObject {
@@ -33,6 +41,8 @@ final class TaskStore: ObservableObject {
     /// Presentation only. Native fields remain the sole ordering source.
     @Published private(set) var completionAnchor: (id: String, index: Int)?
     @Published private(set) var movingTaskID: String?
+    @Published private(set) var undoCandidate: UndoCandidate?
+    @Published private(set) var isUndoing = false
 
     let language: LanguageManager
     var l10n: L10n { language.strings }
@@ -70,9 +80,15 @@ final class TaskStore: ObservableObject {
     private var activeMutationID: UUID?
     private var reloadAfterMutation = false
     private var failedTaskID: String?
+    private var failedUndoCandidate: UndoCandidate?
     private var taskErrorAction: PanelAction = .retryCompletion
     private var needsReconciliation = false
     private var presentationWaiter: CheckedContinuation<Void, Never>?
+    var undoDuration: TimeInterval = CompletionTiming.undoWindow
+    private var undoRemaining: TimeInterval = 0
+    private var undoTimerStartedAt: Date?
+    private var undoHoverPaused = false
+    private var undoTask: Task<Void, Never>?
     static let interactionProtection = CompletionTiming.protection
 
     #if DEBUG || DEMO
@@ -97,12 +113,22 @@ final class TaskStore: ObservableObject {
 
     var presentationSummary: String? { isMutating ? nil : todaySummary }
 
+    var presentationUndo: UndoCandidate? { isMutating ? nil : undoCandidate }
+
     var canCompleteTasks: Bool { hasStatistics && lastError == nil && !needsReconciliation }
 
     var panelNotice: PanelMessage? {
         if let error = taskError {
+            let title: String
+            if needsReconciliation {
+                title = l10n.noticeRefreshToContinue
+            } else if taskErrorAction == .retryUndo {
+                title = l10n.noticeCouldNotUndo
+            } else {
+                title = l10n.noticeCouldNotComplete
+            }
             return PanelMessage(
-                title: needsReconciliation ? l10n.noticeRefreshToContinue : l10n.noticeCouldNotComplete,
+                title: title,
                 detail: error,
                 action: taskErrorAction,
                 actionTitle: taskErrorAction == .refresh ? l10n.refreshAction : l10n.tryAgainAction
@@ -243,6 +269,7 @@ final class TaskStore: ObservableObject {
         accessTimer?.invalidate()
         debounceTask?.cancel()
         loadTimeoutTask?.cancel()
+        undoTask?.cancel()
         activeFetchCancel?()
         for entry in observers {
             entry.center.removeObserver(entry.token)
@@ -621,20 +648,27 @@ final class TaskStore: ObservableObject {
         let cal = calendar
         statsByDay = TaskStatistics.monthStats(for: tasks, today: today, calendar: cal)
         todayTasks = TaskStatistics.todayTasks(for: tasks, today: today)
+        if !isUndoing, let candidate = undoCandidate,
+           candidate.day != today
+            || !todayTasks.contains(where: { $0.id == candidate.taskID && $0.isCompleted && !$0.isRecurring }) {
+            clearUndo(notify: false)
+        }
 
         lastError = nil
         taskError = nil
         failedTaskID = nil
+        failedUndoCandidate = nil
         needsReconciliation = false
         loaded = true
         onUpdate?()
     }
 
-    // MARK: - Completion editing
+    // MARK: - Completion & Undo editing
 
     func resetTaskInteraction() {
         activeMutationID = nil
         isMutating = false
+        isUndoing = false
         savingTaskID = nil
         taskError = nil
         rowIdentityBridge = nil
@@ -643,7 +677,9 @@ final class TaskStore: ObservableObject {
         completionAnchor = nil
         movingTaskID = nil
         failedTaskID = nil
+        failedUndoCandidate = nil
         needsReconciliation = false
+        clearUndo(notify: false)
         isRefreshing = false
         loadTimeoutTask?.cancel()
         loadTimeoutTask = nil
@@ -652,6 +688,114 @@ final class TaskStore: ObservableObject {
         let waiter = presentationWaiter
         presentationWaiter = nil
         waiter?.resume()
+    }
+
+    func setUndoHoverPaused(_ paused: Bool) {
+        guard undoCandidate != nil, !isUndoing else { return }
+        if paused {
+            guard !undoHoverPaused else { return }
+            undoHoverPaused = true
+            undoRemaining = undoDuration
+            undoTimerStartedAt = nil
+            undoTask?.cancel()
+            undoTask = nil
+        } else {
+            guard undoHoverPaused else { return }
+            undoHoverPaused = false
+            undoRemaining = undoDuration
+            startUndoCountdown()
+        }
+    }
+
+    func cancelUndoCountdownOnly() {
+        undoTask?.cancel()
+        undoTask = nil
+        undoTimerStartedAt = nil
+    }
+
+    func clearUndo(notify: Bool = true) {
+        undoTask?.cancel()
+        undoTask = nil
+        undoRemaining = 0
+        undoTimerStartedAt = nil
+        undoHoverPaused = false
+        guard undoCandidate != nil else { return }
+        undoCandidate = nil
+        if notify { onUpdate?() }
+    }
+
+    private func activateUndo(_ candidate: UndoCandidate) {
+        undoTask?.cancel()
+        undoTask = nil
+        undoCandidate = candidate
+        undoRemaining = undoDuration
+        undoHoverPaused = false
+        startUndoCountdown()
+    }
+
+    private func startUndoCountdown() {
+        guard undoCandidate != nil, !undoHoverPaused, undoRemaining > 0 else { return }
+        undoTask?.cancel()
+        let duration = undoRemaining
+        undoTimerStartedAt = Date()
+        undoTask = Task { @MainActor [weak self] in
+            let ns = UInt64(max(0, duration) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: ns)
+            guard !Task.isCancelled, let self, !self.isUndoing else { return }
+            self.clearUndo()
+        }
+    }
+
+    private func beginMutation(id: String, token: UUID, undoing: Bool) {
+        activeMutationID = token
+        isMutating = true
+        isUndoing = undoing
+        savingTaskID = id
+        taskError = nil
+        rowIdentityBridge = nil
+        loadID = UUID() // Ignore any read that started before this explicit edit.
+        isRefreshing = false
+        loadTimeoutTask?.cancel()
+        loadTimeoutTask = nil
+        activeFetchCancel?()
+        activeFetchCancel = nil
+        pendingApply = nil
+        debounceTask?.cancel()
+        onUpdate?()
+    }
+
+    private func awaitPresentationReady(token: UUID, selection: Set<String>, day: Date) async -> Bool {
+        guard activeMutationID == token, selectedCalendarIDs == selection,
+              today == day, access == .granted else { return false }
+        while presentationDeferred && activeMutationID == token {
+            await withCheckedContinuation { presentationWaiter = $0 }
+        }
+        return activeMutationID == token && selectedCalendarIDs == selection
+            && today == day && access == .granted
+    }
+
+    private func animateMutationRow(token: UUID, selection: Set<String>, day: Date) async {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let anchor = completionAnchor {
+            if !reduceMotion {
+                try? await Task.sleep(nanoseconds: CompletionTiming.acknowledge)
+            }
+            guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
+            if !reduceMotion {
+                movingTaskID = anchor.id
+                onUpdate?()
+                try? await Task.sleep(nanoseconds: CompletionTiming.fadeOut)
+                guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
+            }
+            completionAnchor = nil
+            onUpdate?()
+        }
+        if !reduceMotion {
+            try? await Task.sleep(nanoseconds: UInt64(CompletionTiming.movement * 1_000_000_000))
+            guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
+        }
+        movingTaskID = nil
+        onUpdate?()
     }
 
     func completeTask(_ id: String) async {
@@ -666,28 +810,24 @@ final class TaskStore: ObservableObject {
         let cal = calendar
         let wasGolden = todayStat.isFull
         let originalIndex = presentationTasks.firstIndex(where: { $0.id == id }) ?? 0
-        activeMutationID = token
-        isMutating = true
-        savingTaskID = id
-        taskError = nil
-        rowIdentityBridge = nil
-        loadID = UUID() // Ignore any read that started before this explicit edit.
-        isRefreshing = false
-        loadTimeoutTask?.cancel()
-        loadTimeoutTask = nil
-        activeFetchCancel?()
-        activeFetchCancel = nil
-        pendingApply = nil
-        debounceTask?.cancel()
-        onUpdate?()
+        clearUndo(notify: false)
+        failedUndoCandidate = nil
+        var pendingUndo: UndoCandidate?
+        beginMutation(id: id, token: token, undoing: false)
         defer {
             if activeMutationID == token {
                 isMutating = false
+                isUndoing = false
                 savingTaskID = nil
                 rowIdentityBridge = nil
                 completionAnchor = nil
                 movingTaskID = nil
                 activeMutationID = nil
+                if let pendingUndo, taskError == nil, today == day,
+                   selectedCalendarIDs == selection,
+                   todayTasks.contains(where: { $0.id == pendingUndo.taskID && $0.isCompleted }) {
+                    activateUndo(pendingUndo)
+                }
                 onUpdate?()
                 if reloadAfterMutation {
                     reloadAfterMutation = false
@@ -710,13 +850,7 @@ final class TaskStore: ObservableObject {
             result = try await (mutationService ?? defaultMutationService).setCompleted(
                 true, task: task, calendarID: listID, calendar: cal, completedSince: completedSince)
             #endif
-            guard activeMutationID == token, selectedCalendarIDs == selection,
-                  today == day, access == .granted else { return }
-            while presentationDeferred && activeMutationID == token {
-                await withCheckedContinuation { presentationWaiter = $0 }
-            }
-            guard activeMutationID == token, selectedCalendarIDs == selection,
-                  today == day, access == .granted else { return }
+            guard await awaitPresentationReady(token: token, selection: selection, day: day) else { return }
             savingTaskID = nil
             // A short-lived animation identity only; row order comes solely from native fields.
             if let newID = result.completedOccurrenceID,
@@ -730,27 +864,12 @@ final class TaskStore: ObservableObject {
             let retained = isDemo ? [] : sourceTasks.filter { $0.calendarID != nil && $0.calendarID != listID }
             apply(retained + result.tasks)
             if !wasGolden && todayStat.isFull { goldenMoment += 1 }
-            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            if let anchor = completionAnchor {
-                if !reduceMotion {
-                    try? await Task.sleep(nanoseconds: CompletionTiming.acknowledge)
-                }
-                guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
-                if !reduceMotion {
-                    movingTaskID = anchor.id
-                    onUpdate?()
-                    try? await Task.sleep(nanoseconds: CompletionTiming.fadeOut)
-                    guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
-                }
-                completionAnchor = nil
-                onUpdate?()
+            if !task.isRecurring && result.completedOccurrenceID == nil,
+               todayTasks.contains(where: { $0.id == task.id && $0.isCompleted }) {
+                pendingUndo = UndoCandidate(taskID: task.id, calendarID: listID,
+                                            title: task.title, dueDate: task.dueDate, day: day)
             }
-            if !reduceMotion {
-                try? await Task.sleep(nanoseconds: UInt64(CompletionTiming.movement * 1_000_000_000))
-                guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
-            }
-            movingTaskID = nil
-            onUpdate?()
+            await animateMutationRow(token: token, selection: selection, day: day)
         } catch {
             guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
             savingTaskID = nil
@@ -762,6 +881,92 @@ final class TaskStore: ObservableObject {
             onUpdate?()
         }
         // Protect the new position until its fade-in has settled.
+        try? await Task.sleep(nanoseconds: Self.interactionProtection)
+    }
+
+    func undoLastCompletion() async {
+        guard let candidate = undoCandidate else { return }
+        await performUndo(candidate)
+    }
+
+    func retryUndo() async {
+        guard taskErrorAction == .retryUndo, let candidate = failedUndoCandidate else { return }
+        #if DEBUG || DEMO
+        if isDemo { demoWriteBehavior = .normal }
+        #endif
+        await performUndo(candidate)
+    }
+
+    private func performUndo(_ candidate: UndoCandidate) async {
+        guard !isMutating, canCompleteTasks,
+              candidate.day == today,
+              let task = todayTasks.first(where: { $0.id == candidate.taskID && $0.isCompleted && !$0.isRecurring }),
+              selectedCalendars.contains(where: { $0.calendarIdentifier == candidate.calendarID }),
+              isDemo || canOpenTrackedList else { return }
+        let token = UUID()
+        let selection = selectedCalendarIDs
+        let day = today
+        let cal = calendar
+        let originalIndex = presentationTasks.firstIndex(where: { $0.id == candidate.taskID }) ?? 0
+        cancelUndoCountdownOnly()
+        failedUndoCandidate = nil
+        beginMutation(id: candidate.taskID, token: token, undoing: true)
+        defer {
+            if activeMutationID == token {
+                isMutating = false
+                isUndoing = false
+                savingTaskID = nil
+                rowIdentityBridge = nil
+                completionAnchor = nil
+                movingTaskID = nil
+                activeMutationID = nil
+                clearUndo(notify: false)
+                onUpdate?()
+                if reloadAfterMutation {
+                    reloadAfterMutation = false
+                    reload(preservingContent: true)
+                }
+            }
+        }
+        do {
+            let result: ReminderMutationResult
+            #if DEBUG || DEMO
+            if isDemo {
+                result = try await performDemoUndoMutation(task)
+            } else {
+                let completedSince = TaskStatistics.completedHistoryStart(for: day, calendar: cal)
+                result = try await (mutationService ?? defaultMutationService).setCompleted(
+                    false, task: task, calendarID: candidate.calendarID, calendar: cal, completedSince: completedSince)
+            }
+            #else
+            let completedSince = TaskStatistics.completedHistoryStart(for: day, calendar: cal)
+            result = try await (mutationService ?? defaultMutationService).setCompleted(
+                false, task: task, calendarID: candidate.calendarID, calendar: cal, completedSince: completedSince)
+            #endif
+            guard await awaitPresentationReady(token: token, selection: selection, day: day) else { return }
+            savingTaskID = nil
+            if result.tasks.contains(where: { $0.id == candidate.taskID && !$0.isCompleted && TaskStatistics.belongs($0, to: today) }) {
+                completionAnchor = (id: candidate.taskID, index: originalIndex)
+            }
+            let retained = isDemo ? [] : sourceTasks.filter { $0.calendarID != nil && $0.calendarID != candidate.calendarID }
+            apply(retained + result.tasks)
+            await animateMutationRow(token: token, selection: selection, day: day)
+        } catch {
+            guard activeMutationID == token, selectedCalendarIDs == selection, today == day else { return }
+            savingTaskID = nil
+            let reason = error as? ReminderMutationError
+            needsReconciliation = reason == .refreshAfterSave || reason == .changed || reason == .unavailable || reason == .access
+            if needsReconciliation {
+                failedUndoCandidate = nil
+                taskErrorAction = .refresh
+            } else {
+                failedUndoCandidate = candidate
+                taskErrorAction = .retryUndo
+            }
+            taskError = reason?.localizedDescription(with: l10n) ?? l10n.genericUndoFailed
+            clearUndo(notify: false)
+            onUpdate?()
+        }
         try? await Task.sleep(nanoseconds: Self.interactionProtection)
     }
 
@@ -901,6 +1106,7 @@ final class TaskStore: ObservableObject {
         let now = calendar.startOfDay(for: Date())
         guard forceReload || now != today else { return }
         today = now
+        clearUndo(notify: false)
         reload()
     }
 }

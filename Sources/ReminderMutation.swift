@@ -30,8 +30,8 @@ final class ReminderFetchRequest: @unchecked Sendable {
     init(timeout seconds: TimeInterval = 10,
          completion: @escaping @Sendable (Result<[EKReminder], Error>) -> Void) {
         self.completion = completion
-        let item = DispatchWorkItem { [weak self] in
-            self?.finish(.failure(ReminderMutationError.readFailure), cancelRequest: true)
+        let item = DispatchWorkItem {
+            self.finish(.failure(ReminderMutationError.readFailure), cancelRequest: true)
         }
         timeoutWork = item
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + seconds, execute: item)
@@ -83,6 +83,7 @@ enum ScopedReminderFetch {
         var remaining = 2
         var failed = false
         var finished = false
+        var cancelled = false
         var collected: [[EKReminder]] = []
         var tokens: [Any] = []
     }
@@ -149,13 +150,13 @@ enum ScopedReminderFetch {
         }
 
         state.lock.lock()
-        let alreadyFinished = state.finished
-        if !alreadyFinished {
+        let shouldCancel = state.cancelled
+        if !state.finished && !state.cancelled {
             state.tokens = [tokenA, tokenB]
         }
         state.lock.unlock()
 
-        if alreadyFinished {
+        if shouldCancel {
             store.cancelFetchRequest(tokenA)
             store.cancelFetchRequest(tokenB)
         }
@@ -163,6 +164,7 @@ enum ScopedReminderFetch {
         return {
             state.lock.lock()
             let tokens = state.finished ? [] : state.tokens
+            state.cancelled = true
             state.finished = true
             state.tokens.removeAll()
             state.collected.removeAll()
@@ -209,8 +211,8 @@ actor EventKitReminderMutation: ReminderMutationService {
                 store: store,
                 calendars: [list],
                 completedSince: completedSince
-            ) { [weak request] reminders in
-                request?.finish(reminders.map { .success($0) } ?? .failure(ReminderMutationError.readFailure))
+            ) { reminders in
+                request.finish(reminders.map { .success($0) } ?? .failure(ReminderMutationError.readFailure))
             }
             request.attachCancellation(cancel)
         }
@@ -228,6 +230,9 @@ actor EventKitReminderMutation: ReminderMutationService {
             throw ReminderMutationError.changed
         }
         let old = TrackedTask(reminder: original, calendar: calendar)
+        if !completed && old.isRecurring {
+            throw ReminderMutationError.changed
+        }
         // An ID can now refer to the advanced next occurrence after an external edit.
         guard old.dueDate == task.dueDate else {
             throw ReminderMutationError.changed
@@ -235,6 +240,7 @@ actor EventKitReminderMutation: ReminderMutationService {
         let previousIDs = Set(before.map(\.calendarItemIdentifier))
         let started = Date()
         original.isCompleted = completed
+        if !completed { original.completionDate = nil }
         try store.save(original, commit: true)
 
         // Saving a recurring reminder may advance this very ID to the next due date.

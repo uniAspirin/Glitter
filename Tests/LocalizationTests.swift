@@ -65,7 +65,7 @@ final class LocalizationTests: XCTestCase {
 
         XCTAssertEqual(store.l10n.language, .chinese)
         XCTAssertEqual(store.todaySummary, "今日任务已全部完成。")
-        XCTAssertEqual(store.monthTitle, "11月")
+        XCTAssertEqual(store.monthTitle, "十一月")
         XCTAssertEqual(store.l10n.weekdaySymbols, ["一", "二", "三", "四", "五", "六", "日"])
         XCTAssertTrue(store.monthDetail(for: store.today).contains("今天 · 2026年11月26日 星期四"))
         XCTAssertTrue(store.monthDetail(for: store.today).contains("已完成 5/5 · 100%"))

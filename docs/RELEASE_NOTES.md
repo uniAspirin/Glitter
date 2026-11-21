@@ -1,3 +1,25 @@
+# Glitter 1.4
+
+## English
+
+- Highlighted overdue pending reminders (`dueDay < today`) with a `#FF453A` leading dot while keeping titles crisp white and restoring completed rows to the standard neutral checkmark and strikethrough.
+- Added a subtle 5-second inline Undo icon button on the right side of the just-completed non-recurring reminder: dimmed at rest (`white 35%`) without a background box, brightens (`white 92%`) with press feedback while hovering that completed row, resets to a full 5 seconds when the pointer leaves, preserves its active 5-second window across temporary panel collapse, fades in and out smoothly, and disappears when completing another reminder. Clicking it writes `isCompleted = false` back to Reminders before moving the task back to pending. Recurring reminders remain silent and read-only upon completion.
+- Unified Month view heading typography (`September 2026` / `九月 2026`), aligned task row leading dots/checkmarks/spinners to a shared visual center, refined Settings alignment, and fixed an EventKit completion write hang caused by premature fetch-request deallocation.
+
+Validated with 22 XCTest cases across 11 test suites using fictional tasks.
+
+Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple. macOS may require approval under System Settings → Privacy & Security → Open Anyway.
+
+## 简体中文
+
+- 为自然日已逾期且未完成的提醒事项（`dueDay < today`）增加 `#FF453A` 左侧状态圆点提示，标题仍保持纯白；完成后立即恢复为标准灰色勾与删除线。
+- 完成非重复提醒事项后，在该已完成事项最右侧提供轻量的 5 秒行内撤销图标按钮：无底框设计、静置时呈暗白色（35%）不打扰注意力；仅当鼠标悬停在该已完成事项整行区域时图标提亮（92%）并保持常亮（移出后重新计算 5 秒），暂离刘海收起期间依然保留 5 秒有效窗口，超时或完成下一条任务时以渐入渐出效果消失；点击后对称写回提醒事项并将任务平滑恢复到未完成列表与原分数。重复任务完成保持静默与只读。
+- 统一月历视图中英文标题排版为左对齐“重左轻右”样式（如 `September 2026` / `九月 2026`），将任务行前圆点、对号与加载指示器统一为视觉中心对齐，微调设置页排版对齐，并修复因查询请求对象过早释放导致的完成写入无限转圈问题。
+
+通过全部 11 个测试套件共 22 项 XCTest 假数据自动化测试。
+
+支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。macOS 如阻止首次启动，可在系统设置 → 隐私与安全性中选择“仍要打开”。
+
 # Glitter 1.3
 
 ## English

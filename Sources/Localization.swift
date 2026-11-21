@@ -74,14 +74,14 @@ struct L10n: Equatable, Sendable {
 
     // MARK: - Formatting
 
-    var monthNameDateFormat: String { isChinese ? "M月" : "MMMM" }
+    var monthNameDateFormat: String { "MMMM" }
     var dayDetailDateFormat: String { isChinese ? "yyyy年M月d日 EEEE" : "EEEE, MMMM d, yyyy" }
     var nextDueDateFormat: String { isChinese ? "M月d日 EEEE" : "EEEE, MMM d" }
     var tomorrowWord: String { isChinese ? "明天" : "tomorrow" }
 
     func monthYearAccessibleLabel(monthTitle: String, year: Int, goldenDays: Int) -> String {
         if isChinese {
-            return "\(year)年 \(monthTitle)，\(goldenDays) 个全完成日"
+            return "\(year)年\(monthTitle)，\(goldenDays) 个全完成日"
         }
         let unit = goldenDays == 1 ? "Golden Day" : "Golden Days"
         return "\(monthTitle) \(year), \(goldenDays) \(unit)"
@@ -141,6 +141,7 @@ struct L10n: Equatable, Sendable {
 
     var readRemindersFailed: String { isChinese ? "无法读取提醒事项，请重试。" : "Unable to read reminders. Please try again." }
     var genericCompletionFailed: String { isChinese ? "任务未发生变化，请稍后重试。" : "Your reminder is still here. Try again when you're ready." }
+    var genericUndoFailed: String { isChinese ? "此提醒事项仍为已完成状态，请稍后重试。" : "This reminder is still completed. Try again when you're ready." }
 
     func mutationError(_ error: ReminderMutationError) -> String {
         switch error {
@@ -161,6 +162,7 @@ struct L10n: Equatable, Sendable {
 
     var noticeRefreshToContinue: String { isChinese ? "请刷新后继续" : "Refresh to continue" }
     var noticeCouldNotComplete: String { isChinese ? "无法完成此提醒事项" : "Couldn't complete this reminder" }
+    var noticeCouldNotUndo: String { isChinese ? "无法撤销此提醒事项" : "Couldn't undo this reminder" }
     var noticeCouldNotRefreshTitle: String { isChinese ? "刷新失败" : "Couldn't refresh" }
     var noticeCouldNotRefreshDetail: String { isChinese ? "当前显示上次更新内容，请刷新后继续。" : "Showing the last update. Refresh to continue." }
     var noticeSomeListsUnavailableTitle: String { isChinese ? "部分列表不可用" : "Some lists aren't available" }
@@ -223,9 +225,16 @@ struct L10n: Equatable, Sendable {
     func taskCompletedAccessibility(_ title: String) -> String {
         isChinese ? "\(title)，已完成" : "\(title), Completed"
     }
-    func taskPendingAccessibility(_ title: String, saving: Bool) -> String {
-        if isChinese { return "\(title)，\(saving ? "保存中" : "待办")" }
-        return "\(title), \(saving ? "Saving" : "To do")"
+    func taskPendingAccessibility(_ title: String, saving: Bool, overdue: Bool = false) -> String {
+        if isChinese {
+            if saving { return "\(title)，保存中" }
+            return overdue ? "\(title)，已逾期，待办" : "\(title)，待办"
+        }
+        if saving { return "\(title), Saving" }
+        return overdue ? "\(title), Overdue, To do" : "\(title), To do"
+    }
+    func undoAccessibilityLabel(_ title: String) -> String {
+        isChinese ? "撤销完成「\(title)」" : "Undo completing \(title)"
     }
     func taskActionHint(locked: Bool) -> String {
         if isChinese { return locked ? "暂不可用" : "标记为已完成" }

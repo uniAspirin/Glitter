@@ -95,6 +95,7 @@ struct NotchPanelView: View {
         case .refresh: store.retryLoad()
         case .openList: store.openTrackedList()
         case .retryCompletion: Task { await store.retryCompletion() }
+        case .retryUndo: Task { await store.retryUndo() }
         }
     }
 
@@ -129,6 +130,7 @@ struct NotchPanelView: View {
 
     private var tasksContent: some View {
         TodayContent(store: store, geometry: dayGeometry,
+                     panelExpanded: state.expanded,
                      hoveredTaskID: g.dayScrolls ? nil : state.hoveredTaskID,
                      taskMovement: taskMovement)
     }
@@ -300,23 +302,30 @@ private struct PanelMenu: View {
 struct TodayContent: View {
     @ObservedObject var store: TaskStore
     let geometry: NotchGeometry
+    var panelExpanded = true
     var hoveredTaskID: String? = nil
     let taskMovement: Namespace.ID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let l10n = store.l10n
+        let undoTaskID = store.hasStatistics ? store.presentationUndo?.taskID : nil
         VStack(alignment: .leading, spacing: 0) {
             ForEach(store.presentationTasks.map { PresentedRow(id: store.rowAnimationID(for: $0), task: $0) }) { row in
                 let task = row.task
                 let taskRow = TaskRow(
                     task: task,
+                    overdue: task.isOverdue(on: store.today),
                     rowHeight: geometry.taskHeight(task, untitledFallback: l10n.untitledReminder),
                     horizontalPadding: geometry.horizontalPadding,
                     locked: store.isMutating || !store.canCompleteTasks,
                     saving: store.savingTaskID == task.id,
                     sampledHover: hoveredTaskID == task.id,
-                    l10n: l10n
+                    showsUndo: task.isCompleted && undoTaskID == task.id,
+                    panelExpanded: panelExpanded,
+                    l10n: l10n,
+                    onUndoHover: { store.setUndoHoverPaused($0) },
+                    onUndo: { Task { await store.undoLastCompletion() } }
                 ) {
                     Task { await store.completeTask(task.id) }
                 }
@@ -330,6 +339,7 @@ struct TodayContent: View {
                 Text(summary)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.gold.opacity(0.85))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 16)
                     .padding(.top, NotchGeometry.messageGap)
                     .padding(.leading, geometry.taskTextInset)
@@ -350,37 +360,69 @@ private struct PresentedRow: Identifiable {
 
 private struct TaskRow: View {
     let task: TrackedTask
+    let overdue: Bool
     let rowHeight: CGFloat
     let horizontalPadding: CGFloat
     let locked: Bool
     let saving: Bool
     let sampledHover: Bool
+    let showsUndo: Bool
+    let panelExpanded: Bool
     let l10n: L10n
+    let onUndoHover: (Bool) -> Void
+    let onUndo: () -> Void
     let onComplete: () -> Void
     @ViewState private var hovered = false
+    @ViewState private var undoRowHovered = false
     @ViewState private var showsSpinner = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var undoInteractive: Bool { panelExpanded && task.isCompleted && showsUndo && !locked }
+
     var body: some View {
-        Button(action: onComplete) {
-            contents.contentShape(Rectangle())
-        }
-        .buttonStyle(TaskRowStyle())
-        .background(Color.white.opacity(saving ? 0.07 : (hovered || sampledHover) && !locked && !task.isCompleted ? 0.10 : 0))
-        .disabled(locked || task.isCompleted)
-        .onHover { hovered = $0 }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: saving)
-        .accessibilityRepresentation {
-            if task.isCompleted {
-                Text(verbatim: l10n.taskCompletedAccessibility(task.title))
-            } else {
-                Button(action: onComplete) {
-                    Text(verbatim: l10n.taskPendingAccessibility(task.title, saving: saving))
+        ZStack(alignment: .topTrailing) {
+            Button(action: onComplete) {
+                contents.contentShape(Rectangle())
+            }
+            .buttonStyle(TaskRowStyle())
+            .disabled(locked || task.isCompleted)
+            .accessibilityRepresentation {
+                if task.isCompleted {
+                    Text(verbatim: l10n.taskCompletedAccessibility(task.title))
+                } else {
+                    Button(action: onComplete) {
+                        Text(verbatim: l10n.taskPendingAccessibility(task.title, saving: saving, overdue: overdue))
+                    }
+                    .disabled(locked)
+                    .accessibilityHint(l10n.taskActionHint(locked: locked))
                 }
-                .disabled(locked)
-                .accessibilityHint(l10n.taskActionHint(locked: locked))
+            }
+            if task.isCompleted {
+                InlineUndoButton(
+                    title: task.title.isEmpty ? l10n.untitledReminder : task.title,
+                    shows: showsUndo,
+                    locked: locked,
+                    highlighted: undoRowHovered,
+                    horizontalPadding: horizontalPadding,
+                    l10n: l10n,
+                    onUndo: onUndo
+                )
             }
         }
+        .background(Color.white.opacity(saving ? 0.07 : (hovered || sampledHover) && !locked && !task.isCompleted ? 0.10 : 0))
+        .background {
+            if task.isCompleted {
+                ActiveHoverMonitor(active: undoInteractive) { hovering in
+                    if undoRowHovered != hovering { undoRowHovered = hovering }
+                    onUndoHover(hovering)
+                }
+            }
+        }
+        .onHover { hovered = $0 }
+        .onChange(of: undoInteractive) { _, interactive in
+            if !interactive && undoRowHovered { undoRowHovered = false }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: saving)
         .task(id: saving) {
             showsSpinner = false
             guard saving else { return }
@@ -397,13 +439,17 @@ private struct TaskRow: View {
             Group {
                 if saving && showsSpinner {
                     ProgressView().controlSize(.mini).scaleEffect(0.65)
-                } else {
-                    Image(systemName: task.isCompleted ? "checkmark" : "circle.fill")
-                        .font(.system(size: task.isCompleted ? 9 : 4, weight: .medium))
+                } else if task.isCompleted {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Theme.secondary)
+                } else {
+                    Circle()
+                        .fill(overdue ? Theme.overdue : Theme.secondary)
+                        .frame(width: 4, height: 4)
                 }
             }
-            .frame(width: NotchGeometry.taskMarkerWidth, height: 16, alignment: .leading)
+            .frame(width: NotchGeometry.taskMarkerWidth, height: 16, alignment: .center)
             Text(task.title.isEmpty ? l10n.untitledReminder : task.title)
                 .font(.system(size: NotchGeometry.taskFontSize))
                 .foregroundStyle(task.isCompleted ? Theme.secondary : Theme.primary)
@@ -425,6 +471,201 @@ private struct TaskRowStyle: ButtonStyle {
     }
 }
 
+private struct UndoIconShape: Shape {
+    let lineWidth: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let inset = rect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+        let scaleX = inset.width / 16
+        let scaleY = inset.height / 16
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: inset.minX + (x - 4) * scaleX, y: inset.minY + (y - 4) * scaleY)
+        }
+        var path = Path()
+        // Arrowhead: M9 14 L4 9 L9 4
+        path.move(to: pt(9, 14))
+        path.addLine(to: pt(4, 9))
+        path.addLine(to: pt(9, 4))
+        // Curved U-turn: M4 9 H14.5 A5.5 5.5 0 0 1 14.5 20 H11
+        path.move(to: pt(4, 9))
+        path.addLine(to: pt(14.5, 9))
+        path.addArc(
+            center: pt(14.5, 14.5),
+            radius: 5.5 * min(scaleX, scaleY),
+            startAngle: .degrees(-90),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: pt(11, 20))
+        return path
+    }
+}
+
+private struct UndoIconButtonStyle: ButtonStyle {
+    let trailingPadding: CGFloat
+    let hitWidth: CGFloat
+    let hitHeight: CGFloat
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.94 : 1)
+                .opacity(configuration.isPressed ? 0.78 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
+        }
+        .padding(.trailing, trailingPadding)
+        .frame(width: hitWidth, height: hitHeight)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct InlineUndoButton: View {
+    let title: String
+    let shows: Bool
+    let locked: Bool
+    let highlighted: Bool
+    let horizontalPadding: CGFloat
+    let l10n: L10n
+    let onUndo: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isInteractive: Bool { shows && !locked }
+    private var hitWidth: CGFloat { horizontalPadding + 23 }
+    private var hitHeight: CGFloat { NotchGeometry.taskRowHeight + 2 * NotchGeometry.taskRowPadding }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 14, height: hitHeight)
+                Color.black
+                    .frame(width: horizontalPadding + 17, height: hitHeight)
+            }
+            .allowsHitTesting(false)
+
+            Button(action: onUndo) {
+                UndoIconShape(lineWidth: 1.5)
+                    .stroke(
+                        isInteractive && highlighted ? Color.white.opacity(0.92) : Color.white.opacity(0.35),
+                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+                    )
+                    .frame(width: 13, height: 13)
+            }
+            .buttonStyle(UndoIconButtonStyle(
+                trailingPadding: horizontalPadding,
+                hitWidth: hitWidth,
+                hitHeight: hitHeight,
+                reduceMotion: reduceMotion
+            ))
+            .disabled(!isInteractive)
+            .accessibilityLabel(l10n.undoAccessibilityLabel(title))
+        }
+        .opacity(shows ? 1 : 0)
+        .allowsHitTesting(isInteractive)
+        .accessibilityHidden(!shows)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: highlighted)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: shows)
+    }
+}
+
+private struct ActiveHoverMonitor: NSViewRepresentable {
+    let active: Bool
+    let onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> HoverTrackingView {
+        let view = HoverTrackingView()
+        view.onHover = onHover
+        view.isActive = active
+        return view
+    }
+
+    func updateNSView(_ view: HoverTrackingView, context: Context) {
+        view.onHover = onHover
+        if view.isActive != active {
+            view.isActive = active
+        }
+        view.refreshHoverState()
+    }
+
+    final class HoverTrackingView: NSView {
+        var onHover: ((Bool) -> Void)?
+        var isActive = false {
+            didSet {
+                if !isActive { setHovered(false) }
+            }
+        }
+        private var trackingArea: NSTrackingArea?
+        private var isHovered = false
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            clipsToBounds = true
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            clipsToBounds = true
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func updateTrackingAreas() {
+            if let trackingArea { removeTrackingArea(trackingArea) }
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways],
+                owner: self
+            )
+            addTrackingArea(area)
+            trackingArea = area
+            super.updateTrackingAreas()
+            refreshHoverState()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            refreshHoverState()
+        }
+
+        override func viewDidHide() {
+            super.viewDidHide()
+            setHovered(false)
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            refreshHoverState()
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            setHovered(false)
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            refreshHoverState()
+        }
+
+        func refreshHoverState() {
+            guard isActive, let window, window.isVisible, !isHiddenOrHasHiddenAncestor else {
+                setHovered(false)
+                return
+            }
+            let local = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            let visible = bounds.intersection(visibleRect)
+            let inside = !visible.isEmpty && visible.contains(local)
+            setHovered(inside)
+        }
+
+        private func setHovered(_ hovering: Bool) {
+            guard hovering != isHovered else { return }
+            isHovered = hovering
+            let callback = onHover
+            Task { @MainActor in callback?(hovering) }
+        }
+    }
+}
+
 struct MonthContent: View {
     @ObservedObject var store: TaskStore
     let geometry: NotchGeometry
@@ -433,13 +674,12 @@ struct MonthContent: View {
         let l10n = store.l10n
         let yearNumber = store.calendar.component(.year, from: store.today)
         VStack(spacing: 0) {
-            monthHeading(year: yearNumber, l10n: l10n)
-                .foregroundStyle(Color.white.opacity(0.84))
+            monthHeading(year: yearNumber)
                 .help(l10n.goldenDaysHelp(store.monthFullDays))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: l10n.monthYearAccessibleLabel(
                     monthTitle: store.monthTitle, year: yearNumber, goldenDays: store.monthFullDays)))
-                .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                .lineLimit(1)
                 .frame(width: geometry.gridWidth, height: geometry.monthHeadingHeight, alignment: .leading)
             Color.clear.frame(height: geometry.monthHeadingGap)
             HStack(spacing: geometry.cellGap) {
@@ -475,15 +715,16 @@ struct MonthContent: View {
         .frame(width: geometry.gridWidth, height: geometry.monthContentHeight, alignment: .top)
     }
 
-    private func monthHeading(year: Int, l10n: L10n) -> Text {
-        if l10n.language == .chinese {
-            let yearText = Text(verbatim: "\(year)年").font(.system(size: 18, weight: .regular))
-            let monthText = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
-            return Text("\(yearText) \(monthText)")
+    private func monthHeading(year: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(store.monthTitle)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.primary)
+            Text(verbatim: String(year))
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Theme.secondary)
+                .monospacedDigit()
         }
-        let monthText = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
-        let yearText = Text(verbatim: String(year)).font(.system(size: 18, weight: .regular))
-        return Text("\(monthText) \(yearText)")
     }
 }
 

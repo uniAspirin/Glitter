@@ -31,6 +31,30 @@ extension TaskStore {
         return result
     }
 
+    func performDemoUndoMutation(_ task: TrackedTask) async throws -> ReminderMutationResult {
+        try await Task.sleep(nanoseconds: demoWriteBehavior == .slow ? 900_000_000 : 100_000_000)
+        if demoWriteBehavior == .failed { throw NSError(domain: "Glitter.Demo", code: 1) }
+        let reverted = TrackedTask(
+            id: task.id,
+            title: task.title,
+            dueDay: task.dueDay,
+            completedDay: nil,
+            isCompleted: false,
+            priority: task.priority,
+            dueDate: task.dueDate,
+            completionDate: nil,
+            isRecurring: false,
+            calendarID: task.calendarID
+        )
+        let tasks = sourceTasks.filter { $0.id != task.id } + [reverted]
+        let result = ReminderMutationResult(tasks: tasks)
+        if demoWriteBehavior == .unconfirmed {
+            demoRecoveryTasks = result.tasks
+            throw ReminderMutationError.refreshAfterSave
+        }
+        return result
+    }
+
     func performDemoRetryLoad() {
         if let tasks = demoRecoveryTasks {
             demoRecoveryTasks = nil

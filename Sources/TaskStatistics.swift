@@ -38,6 +38,11 @@ struct TrackedTask: Identifiable, Equatable, Sendable {
         }
     }
 
+    func isOverdue(on today: Date) -> Bool {
+        guard !isCompleted, let dueDay else { return false }
+        return dueDay < today
+    }
+
     static func precedes(_ a: TrackedTask, _ b: TrackedTask) -> Bool {
         if a.isCompleted != b.isCompleted { return !a.isCompleted }
         if !a.isCompleted {
