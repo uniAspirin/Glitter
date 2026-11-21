@@ -1,6 +1,6 @@
 # Developing Glitter
 
-Glitter 1.4 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
+Glitter 1.4.1 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
 ## Xcode development / Xcode 开发
 
@@ -86,7 +86,7 @@ Single-line task rows are 26 pt tall with 4 pt of vertical padding on each side.
 ./package.sh
 ```
 
-This rebuilds the production app and creates `dist/Glitter-1.4.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
+This rebuilds the production app and creates `dist/Glitter-1.4.1.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
 
 The default build uses ad-hoc signing. A successful local signature check does not imply Apple notarization or Gatekeeper acceptance on another Mac. Gatekeeper may block an unnotarized download.
 

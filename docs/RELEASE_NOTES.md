@@ -1,3 +1,19 @@
+# Glitter 1.4.1
+
+## English
+
+- Refined panel typography: switched numeric labels to SF Mono with subtle month heading and letter-spacing adjustments.
+- Unified internal panel typography definitions.
+
+Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple. macOS may require approval under System Settings → Privacy & Security → Open Anyway.
+
+## 简体中文
+
+- 优化面板字体与样式，数字改用 SF Mono，并微调月份标题与字距。
+- 更新面板内部字体规范。
+
+支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。macOS 如阻止首次启动，可在系统设置 → 隐私与安全性中选择“仍要打开”。
+
 # Glitter 1.4
 
 ## English

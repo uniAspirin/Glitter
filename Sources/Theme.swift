@@ -17,6 +17,28 @@ enum Theme {
     static let secondary = Color.white.opacity(0.50)
     static let tertiary = Color.white.opacity(0.30)
 
+    /// 面板字体角色，统一收敛于此，避免视图内散落字号。
+    enum Typography {
+        static let score: Font = monoDigits(size: NotchGeometry.scoreFontSize, weight: .medium)
+        static let statusSymbol: Font = .system(size: 12, weight: .medium)
+        static let task: Font = .system(size: NotchGeometry.taskFontSize)
+        static let taskCheckmark: Font = .system(size: 9, weight: .medium)
+        static let summary: Font = .system(size: 11, weight: .medium)
+        static let monthHeading: Font = .system(size: 15, weight: .medium)
+        static let monthHeadingTracking: CGFloat = 0.6
+        static let monthYear: Font = monoDigits(size: 11, weight: .regular)
+        static let weekday: Font = .system(size: 9, weight: .medium)
+        static let messageTitle: Font = .system(size: 13, weight: .semibold)
+        static let messageDetail: Font = .system(size: 12)
+        static let noticeTitle: Font = .system(size: 12, weight: .semibold)
+        static let noticeDetail: Font = .system(size: 11)
+        static let button: Font = .system(size: 12, weight: .medium)
+
+        static func monoDigits(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+            .system(size: size, weight: weight, design: .monospaced)
+        }
+    }
+
     /// Positive partial completion spans seven bands; only 100% receives level 7.
     /// Zero completion is rendered separately as neutral gray.
     static func level(for ratio: Double) -> Int {
@@ -101,8 +123,7 @@ struct DayBlock: View {
 struct ScoreText: View {
     let numerator: String
     let denominator: String
-    let size: CGFloat
-    let weight: Font.Weight
+    var font: Font = Theme.Typography.score
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -115,7 +136,7 @@ struct ScoreText: View {
                 .contentTransition(.numericText(value: Double(denominator) ?? 0))
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: denominator)
         }
-        .font(.system(size: size, weight: weight, design: .rounded))
+        .font(font)
         .monospacedDigit()
         .fixedSize(horizontal: true, vertical: true)
     }

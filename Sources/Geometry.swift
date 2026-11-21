@@ -80,10 +80,9 @@ struct NotchGeometry: Equatable {
     let headerPadding: CGFloat = 12
     var horizontalPadding: CGFloat { headerPadding }
     static let scoreFontSize: CGFloat = 11
+    private static let scoreFont = NSFont.monospacedSystemFont(ofSize: scoreFontSize, weight: .medium)
     static let reservedScoreWidth: CGFloat = {
-        let base = NSFont.monospacedDigitSystemFont(ofSize: scoreFontSize, weight: .semibold)
-        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: scoreFontSize) } ?? base
-        return ceil(("99/99" as NSString).size(withAttributes: [.font: font]).width) + 1
+        ceil(("99/99" as NSString).size(withAttributes: [.font: scoreFont]).width) + 1
     }()
     let monthHeadingHeight: CGFloat = 22
     let monthHeadingGap: CGFloat = 8
@@ -230,9 +229,7 @@ struct NotchGeometry: Equatable {
         geometry.displayScale = display?.backingScaleFactor ?? 1
         geometry.todayContentHeight = todayHeight
         geometry.showingMonth = showingMonth
-        let base = NSFont.monospacedDigitSystemFont(ofSize: Self.scoreFontSize, weight: .semibold)
-        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: Self.scoreFontSize) } ?? base
-        let textWidth = ceil((scoreText as NSString).size(withAttributes: [.font: font]).width)
+        let textWidth = ceil((scoreText as NSString).size(withAttributes: [.font: Self.scoreFont]).width)
         geometry.scoreScale = min(1, Self.reservedScoreWidth / max(1, textWidth))
         geometry.horizontalOffset = geometry.settledOffset(offset)
         return geometry

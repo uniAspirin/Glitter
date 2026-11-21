@@ -57,7 +57,10 @@ final class ControllerTests: XCTestCase {
         let reserved = NotchGeometry.make(for: builtIn, rows: 6, offset: 0, scoreText: "99/99")
         XCTAssertTrue(reserved.horizontalPadding == 12 && reserved.padding == 12)
         XCTAssertEqual(reserved.collapsedHeight, 32)
-        XCTAssertTrue(reserved.expandedWidth == 286 && reserved.contentWidth == 262)
+        let expectedNotchedWidth = ceil(max(270, 185 + 2 * (NotchGeometry.reservedScoreWidth + 12 + 2)) / 2) * 2
+        XCTAssertEqual(reserved.expandedWidth, expectedNotchedWidth)
+        XCTAssertEqual(reserved.contentWidth, expectedNotchedWidth - 24)
+        XCTAssertLessThanOrEqual(reserved.expandedWidth, 286)
 
         let unnotched = NotchGeometry.make(for: external, rows: 6, offset: 0, referenceNotchWidth: 185)
         XCTAssertEqual(unnotched.collapsedHeight, 34)

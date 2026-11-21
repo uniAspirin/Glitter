@@ -243,13 +243,13 @@ struct PanelHeaderView: View {
             scoreContents
         } else {
             Image(systemName: store.panelStatus.symbol)
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.secondary)
+                .font(Theme.Typography.statusSymbol).foregroundStyle(Theme.secondary)
                 .help(store.panelStatus.title(with: l10n))
         }
     }
 
     private var scoreContents: some View {
-        ScoreText(numerator: "\(store.todayStat.done)", denominator: "\(store.todayStat.due)", size: NotchGeometry.scoreFontSize, weight: .semibold)
+        ScoreText(numerator: "\(store.todayStat.done)", denominator: "\(store.todayStat.due)")
             .scaleEffect(g.scoreScale, anchor: .leading)
             .frame(width: g.collapsedScoreWidth, height: 24, alignment: .leading)
             .clipped()
@@ -337,7 +337,7 @@ struct TodayContent: View {
             }
             if !store.todayTasks.isEmpty, let summary = store.presentationSummary {
                 Text(summary)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Theme.Typography.summary)
                     .foregroundStyle(Theme.gold.opacity(0.85))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 16)
@@ -441,7 +441,7 @@ private struct TaskRow: View {
                     ProgressView().controlSize(.mini).scaleEffect(0.65)
                 } else if task.isCompleted {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(Theme.Typography.taskCheckmark)
                         .foregroundStyle(Theme.secondary)
                 } else {
                     Circle()
@@ -451,7 +451,7 @@ private struct TaskRow: View {
             }
             .frame(width: NotchGeometry.taskMarkerWidth, height: 16, alignment: .center)
             Text(task.title.isEmpty ? l10n.untitledReminder : task.title)
-                .font(.system(size: NotchGeometry.taskFontSize))
+                .font(Theme.Typography.task)
                 .foregroundStyle(task.isCompleted ? Theme.secondary : Theme.primary)
                 .strikethrough(task.isCompleted, color: Theme.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -674,7 +674,7 @@ struct MonthContent: View {
         let l10n = store.l10n
         let yearNumber = store.calendar.component(.year, from: store.today)
         VStack(spacing: 0) {
-            monthHeading(year: yearNumber)
+            monthHeading(year: yearNumber, l10n: l10n)
                 .help(l10n.goldenDaysHelp(store.monthFullDays))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: l10n.monthYearAccessibleLabel(
@@ -684,7 +684,7 @@ struct MonthContent: View {
             Color.clear.frame(height: geometry.monthHeadingGap)
             HStack(spacing: geometry.cellGap) {
                 ForEach(Array(l10n.weekdaySymbols.enumerated()), id: \.offset) { _, day in
-                    Text(day).font(.system(size: 9, weight: .medium))
+                    Text(day).font(Theme.Typography.weekday)
                         .foregroundStyle(Theme.secondary)
                         .frame(width: geometry.cell)
                 }
@@ -715,14 +715,17 @@ struct MonthContent: View {
         .frame(width: geometry.gridWidth, height: geometry.monthContentHeight, alignment: .top)
     }
 
-    private func monthHeading(year: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(store.monthTitle)
-                .font(.system(size: 15, weight: .semibold))
+    private func monthHeading(year: Int, l10n: L10n) -> some View {
+        let isEnglish = l10n.language == .english
+        let monthLabel = isEnglish ? store.monthTitle.uppercased(with: l10n.locale) : store.monthTitle
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(monthLabel)
+                .font(Theme.Typography.monthHeading)
+                .tracking(isEnglish ? Theme.Typography.monthHeadingTracking : 0)
                 .foregroundStyle(Theme.primary)
             Text(verbatim: String(year))
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(Theme.secondary)
+                .font(Theme.Typography.monthYear)
+                .foregroundStyle(Theme.tertiary)
                 .monospacedDigit()
         }
     }
@@ -742,12 +745,12 @@ struct PanelMessageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(message.title)
-                .font(.system(size: compact ? 12 : 13, weight: .semibold))
+                .font(compact ? Theme.Typography.noticeTitle : Theme.Typography.messageTitle)
                 .foregroundStyle(Theme.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, padding)
             Text(message.detail)
-                .font(.system(size: compact ? 11 : 12))
+                .font(compact ? Theme.Typography.noticeDetail : Theme.Typography.messageDetail)
                 .foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, padding)
@@ -769,7 +772,7 @@ private struct FeedbackButton: View {
     @ViewState private var hovered = false
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 12, weight: .medium))
+            Text(title).font(Theme.Typography.button)
                 .foregroundStyle(Theme.primary.opacity(busy ? 0.5 : 1))
                 .frame(maxWidth: .infinity).frame(height: 28)
                 .background(Color.white.opacity(hovered && !busy ? 0.12 : 0.045))
