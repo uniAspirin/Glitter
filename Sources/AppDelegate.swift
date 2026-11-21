@@ -1,23 +1,15 @@
 import AppKit
 
-final class DemoDefaults: UserDefaults {
-    private var values: [String: Any] = [:]
-    override func set(_ value: Any?, forKey key: String) { values[key] = value }
-    override func set(_ value: Int, forKey key: String) { values[key] = value }
-    override func set(_ value: Double, forKey key: String) { values[key] = value }
-    override func object(forKey key: String) -> Any? { values[key] }
-    override func data(forKey key: String) -> Data? { values[key] as? Data }
-    override func string(forKey key: String) -> String? { values[key] as? String }
-    override func integer(forKey key: String) -> Int { values[key] as? Int ?? 0 }
-    override func double(forKey key: String) -> Double { values[key] as? Double ?? 0 }
-    override func removeObject(forKey key: String) { values.removeValue(forKey: key) }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    #if DEBUG || DEMO
     private let demoMode = CommandLine.arguments.contains("--demo")
         || Bundle.main.object(forInfoDictionaryKey: "GlitterDemoMode") as? Bool == true
     private lazy var appDefaults: UserDefaults = demoMode ? DemoDefaults() : .standard
+    #else
+    private let demoMode = false
+    private let appDefaults: UserDefaults = .standard
+    #endif
     private lazy var store = TaskStore(defaults: appDefaults)
     private lazy var loginItems = LoginItemManager(isDemo: demoMode)
     private var controller: NotchPanelController!
@@ -26,24 +18,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Canvas hosts only the requested view; do not start global panels or EventKit.
-        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
+        // Canvas and XCTest hosts run their own views; do not launch global panels or EventKit.
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1",
+              ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        #if DEBUG || DEMO
         if demoMode { store.loadDemoData(taskCount: 30, completedCount: 6) } else { store.start() }
+        #else
+        store.start()
+        #endif
         controller = NotchPanelController(store: store, defaults: appDefaults)
-        controller.onDataChanged = { [weak self] in self?.rebuildMenu() }
+        controller.onDataChanged = { [weak self] in
+            self?.rebuildMenu()
+            self?.settingsWindow?.updateLocalizedTitles()
+        }
         controller.show()
         settingsWindow = SettingsWindowController(store: store, controller: controller, loginItems: loginItems)
         controller.state.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
         setupStatusItem()
         rebuildMenu()
 
-
-
+        #if DEBUG || DEMO
         if demoMode {
             controller.forceExpandedForDebug()
             rebuildMenu()
             return
         }
+        #endif
 
         if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
@@ -81,27 +81,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         statusItem?.isVisible = controller.showsMenuBarIcon
         statusMenu.removeAllItems()
+        let l10n = store.l10n
 
         let stat = store.todayStat
         let summary = store.hasStatistics
             ? "\(store.selectedCalendarName)  \(stat.done)/\(stat.due)"
-            : store.panelStatus.title
+            : store.panelStatus.title(with: l10n)
         let head = NSMenuItem(title: summary, action: nil, keyEquivalent: "")
         head.isEnabled = false
         statusMenu.addItem(head)
         if store.panelStatus == .empty {
-            let empty = NSMenuItem(title: store.panelStatus.title, action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: store.panelStatus.title(with: l10n), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             statusMenu.addItem(empty)
         }
 
         switch store.access {
         case .denied:
-            let item = NSMenuItem(title: "Reminders Access Required…", action: #selector(openPrivacySettings), keyEquivalent: "")
+            let item = NSMenuItem(title: l10n.menuBarRemindersRequired, action: #selector(openPrivacySettings), keyEquivalent: "")
             item.target = self
             statusMenu.addItem(item)
         case .unknown:
-            let item = NSMenuItem(title: "Waiting for Access…", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: l10n.menuBarWaitingAccess, action: nil, keyEquivalent: "")
             item.isEnabled = false
             statusMenu.addItem(item)
         case .granted:
@@ -110,53 +111,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusMenu.addItem(.separator())
 
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(title: l10n.menuBarSettings, action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         statusMenu.addItem(settings)
 
-        let displayItem = NSMenuItem(title: "Display", action: nil, keyEquivalent: "")
+        let displayItem = NSMenuItem(title: l10n.menuBarDisplay, action: nil, keyEquivalent: "")
         let displayMenu = NSMenu()
-        let currentScreen = controller.currentScreen
-        for screen in NSScreen.screens {
-            let suffix = screen.safeAreaInsets.top > 0 ? " (Notch)" : ""
+        let currentDisplay = controller.currentDisplay
+        for display in controller.displays {
             let item = NSMenuItem(
-                title: screen.displayName + suffix,
+                title: display.displayLabel(strings: l10n),
                 action: #selector(selectDisplay(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = Int(screen.displayID ?? 0)
-            item.state = (screen.displayID == currentScreen?.displayID) ? .on : .off
+            item.representedObject = Int(display.id)
+            item.state = (display.id == currentDisplay?.id) ? .on : .off
             displayMenu.addItem(item)
         }
         displayItem.submenu = displayMenu
         statusMenu.addItem(displayItem)
 
-        let center = NSMenuItem(title: "Center Panel", action: #selector(resetOffset), keyEquivalent: "")
+        let center = NSMenuItem(title: l10n.menuBarCenterPanel, action: #selector(resetOffset), keyEquivalent: "")
         center.target = self
         statusMenu.addItem(center)
 
         statusMenu.addItem(.separator())
 
-        let refresh = NSMenuItem(title: "Refresh", action: #selector(refresh), keyEquivalent: "r")
+        let refresh = NSMenuItem(title: l10n.menuBarRefresh, action: #selector(refresh), keyEquivalent: "r")
         refresh.target = self
         statusMenu.addItem(refresh)
 
+        #if DEBUG || DEMO
         if store.isDemo {
-            let pinned = NSMenuItem(title: "Keep Expand", action: #selector(togglePinned), keyEquivalent: "")
+            let pinned = NSMenuItem(title: l10n.menuKeepExpand, action: #selector(togglePinned), keyEquivalent: "")
             pinned.target = self
             pinned.state = controller.state.pinned ? .on : .off
             statusMenu.addItem(pinned)
         }
+        #endif
 
         statusMenu.addItem(.separator())
 
-        let openReminders = NSMenuItem(title: "Open Reminders", action: #selector(openReminders), keyEquivalent: "")
+        let openReminders = NSMenuItem(title: l10n.menuBarOpenReminders, action: #selector(openReminders), keyEquivalent: "")
         openReminders.target = self
         openReminders.isEnabled = !demoMode
         statusMenu.addItem(openReminders)
 
-        let quit = NSMenuItem(title: "Quit Glitter", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: l10n.menuQuit, action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         statusMenu.addItem(quit)
     }
@@ -183,10 +185,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    #if DEBUG || DEMO
     @objc private func togglePinned() {
         controller.togglePinned()
         rebuildMenu()
     }
+    #endif
 
     @objc private func openReminders() {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.reminders") {

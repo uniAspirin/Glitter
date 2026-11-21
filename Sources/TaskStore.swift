@@ -3,75 +3,6 @@ import Combine
 import EventKit
 import Foundation
 
-struct TrackedTask: Identifiable, Equatable {
-    let id: String
-    var calendarID: String?
-    let title: String
-    /// 到期日（本地零点）
-    let dueDay: Date?
-    /// 完成日（本地零点）
-    let completedDay: Date?
-    let isCompleted: Bool
-    let priority: Int
-    let dueDate: Date?
-    let completionDate: Date?
-    let isRecurring: Bool
-
-    init(id: String, title: String, dueDay: Date?, completedDay: Date?, isCompleted: Bool,
-         priority: Int = 0, dueDate: Date? = nil, completionDate: Date? = nil, isRecurring: Bool = false,
-         calendarID: String? = nil) {
-        self.id = id
-        self.calendarID = calendarID
-        self.title = title
-        self.dueDay = dueDay
-        self.completedDay = completedDay
-        self.isCompleted = isCompleted
-        self.priority = priority
-        self.dueDate = dueDate ?? dueDay
-        self.completionDate = completionDate ?? completedDay
-        self.isRecurring = isRecurring
-    }
-
-    var priorityRank: Int {
-        switch priority {
-        case 1...4: return 0
-        case 5: return 1
-        case 6...9: return 2
-        default: return 3
-        }
-    }
-
-    static func precedes(_ a: TrackedTask, _ b: TrackedTask) -> Bool {
-        if a.isCompleted != b.isCompleted { return !a.isCompleted }
-        if !a.isCompleted {
-            if a.priorityRank != b.priorityRank { return a.priorityRank < b.priorityRank }
-            let left = a.dueDate ?? .distantFuture, right = b.dueDate ?? .distantFuture
-            if left != right { return left < right }
-        } else {
-            let left = a.completionDate ?? .distantPast, right = b.completionDate ?? .distantPast
-            if left != right { return left > right }
-        }
-        let order = a.title.localizedStandardCompare(b.title)
-        return order == .orderedSame ? a.id < b.id : order == .orderedAscending
-    }
-}
-
-struct DayStat {
-    let day: Date
-    let due: Int
-    let done: Int
-
-    var ratio: Double {
-        guard due > 0 else { return 0 }
-        return min(Double(done) / Double(due), 1)
-    }
-
-    var isFull: Bool { due > 0 && done >= due }
-    var isEmpty: Bool { due == 0 }
-
-    static func zero(_ day: Date) -> DayStat { DayStat(day: day, due: 0, done: 0) }
-}
-
 /// Reminders is the sole source; completion writes are explicit user actions.
 @MainActor
 final class TaskStore: ObservableObject {
@@ -81,14 +12,14 @@ final class TaskStore: ObservableObject {
         case denied
     }
 
-    @Published private(set) var access: Access = .unknown
-    @Published private(set) var today: Date = Calendar.current.startOfDay(for: Date())
-    @Published private(set) var calendars: [EKCalendar] = []
-    @Published private(set) var selectedCalendarIDs: Set<String>
+    @Published var access: Access = .unknown
+    @Published var today: Date = Calendar.current.startOfDay(for: Date())
+    @Published var calendars: [EKCalendar] = []
+    @Published var selectedCalendarIDs: Set<String>
     @Published private(set) var statsByDay: [Date: DayStat] = [:]
     @Published private(set) var todayTasks: [TrackedTask] = []
-    @Published private(set) var lastError: String?
-    @Published private(set) var loaded = false
+    @Published var lastError: String?
+    @Published var loaded = false
     @Published private(set) var isRefreshing = false
     /// Today / Month disclosure is retained only in this process.
     /// The controller publishes page geometry without invalidating task-data observers.
@@ -103,35 +34,57 @@ final class TaskStore: ObservableObject {
     @Published private(set) var completionAnchor: (id: String, index: Int)?
     @Published private(set) var movingTaskID: String?
 
+    let language: LanguageManager
+    var l10n: L10n { language.strings }
+
     var onUpdate: (() -> Void)?
-    private lazy var monthNameFormatter = makeCalendarFormatter("MMMM")
-    private lazy var dayDetailFormatter = makeCalendarFormatter("EEEE, MMMM d, yyyy")
+    private lazy var monthNameFormatter = makeCalendarFormatter(l10n.monthNameDateFormat)
+    private lazy var dayDetailFormatter = makeCalendarFormatter(l10n.dayDetailDateFormat)
+    private lazy var nextDueFormatter = makeCalendarFormatter(l10n.nextDueDateFormat)
 
     private func makeCalendarFormatter(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = l10n.locale
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = format
         return formatter
     }
-    private let mutationService: ReminderMutationService?
-    private var sourceTasks: [TrackedTask] = []
+
+    private func configuredFormatter(_ formatter: DateFormatter, format: String) -> DateFormatter {
+        let targetLocale = l10n.locale
+        let cal = calendar
+        if formatter.locale != targetLocale { formatter.locale = targetLocale }
+        if formatter.calendar != cal { formatter.calendar = cal }
+        if formatter.timeZone != cal.timeZone { formatter.timeZone = cal.timeZone }
+        if formatter.dateFormat != format { formatter.dateFormat = format }
+        return formatter
+    }
+
+    private let mutationService: (any ReminderMutationService)?
+    private lazy var defaultMutationService: any ReminderMutationService = EventKitReminderMutation()
+    private(set) var sourceTasks: [TrackedTask] = []
     private var appliedDay: Date?
     private var presentationDeferred = false
-    private var pendingApply: (tasks: [TrackedTask], request: UUID, calendarIDs: Set<String>, day: Date)?
+    var pendingApply: (tasks: [TrackedTask], request: UUID, calendarIDs: Set<String>, day: Date)?
     private var activeMutationID: UUID?
     private var reloadAfterMutation = false
-    private enum DemoWriteBehavior { case normal, slow, failed, unconfirmed }
-    private var demoWriteBehavior: DemoWriteBehavior = .normal
-    private var demoRecoveryTasks: [TrackedTask]?
-    private var demoTasks: [TrackedTask] = []
-    private var demoStatus: PanelStatus?
     private var failedTaskID: String?
     private var taskErrorAction: PanelAction = .retryCompletion
     private var needsReconciliation = false
     private var presentationWaiter: CheckedContinuation<Void, Never>?
     static let interactionProtection = CompletionTiming.protection
+
+    #if DEBUG || DEMO
+    enum DemoWriteBehavior { case normal, slow, failed, unconfirmed }
+    var demoWriteBehavior: DemoWriteBehavior = .normal
+    var demoRecoveryTasks: [TrackedTask]?
+    var demoTasks: [TrackedTask] = []
+    var demoStatus: PanelStatus?
+    var isDemo = false
+    #else
+    let isDemo = false
+    #endif
 
     var presentationTasks: [TrackedTask] {
         guard let anchor = completionAnchor,
@@ -148,17 +101,28 @@ final class TaskStore: ObservableObject {
 
     var panelNotice: PanelMessage? {
         if let error = taskError {
-            return PanelMessage(title: needsReconciliation ? "Refresh to continue" : "Couldn't complete this reminder",
-                                detail: error, action: taskErrorAction,
-                                actionTitle: taskErrorAction == .refresh ? "Refresh" : "Try Again")
+            return PanelMessage(
+                title: needsReconciliation ? l10n.noticeRefreshToContinue : l10n.noticeCouldNotComplete,
+                detail: error,
+                action: taskErrorAction,
+                actionTitle: taskErrorAction == .refresh ? l10n.refreshAction : l10n.tryAgainAction
+            )
         }
         if lastError != nil && hasStatistics {
-            return PanelMessage(title: "Couldn't refresh", detail: "Showing the last update. Refresh to continue.",
-                                action: .refresh, actionTitle: isRefreshing ? "Refreshing…" : "Try Again")
+            return PanelMessage(
+                title: l10n.noticeCouldNotRefreshTitle,
+                detail: l10n.noticeCouldNotRefreshDetail,
+                action: .refresh,
+                actionTitle: isRefreshing ? l10n.refreshingAction : l10n.tryAgainAction
+            )
         }
         if hasStatistics && selectedCalendars.count < selectedCalendarIDs.count {
-            return PanelMessage(title: "Some lists aren't available", detail: "Showing your available lists. Review your selection in Settings.",
-                                action: .settings, actionTitle: "Open Settings")
+            return PanelMessage(
+                title: l10n.noticeSomeListsUnavailableTitle,
+                detail: l10n.noticeSomeListsUnavailableDetail,
+                action: .settings,
+                actionTitle: l10n.openSettingsAction
+            )
         }
         return nil
     }
@@ -166,65 +130,77 @@ final class TaskStore: ObservableObject {
     var panelMessage: PanelMessage {
         switch panelStatus {
         case .awaitingAccess:
-            return PanelMessage(title: "Connect to Reminders", detail: "Allow access to see your chosen list here.",
-                                action: .settings, actionTitle: "Open Settings")
+            return PanelMessage(title: l10n.msgAwaitingTitle, detail: l10n.msgAwaitingDetail,
+                                action: .settings, actionTitle: l10n.openSettingsAction)
         case .denied:
-            return PanelMessage(title: "Reminders access is off", detail: "Allow access in Settings to bring your list back.",
-                                action: .settings, actionTitle: "Open Settings")
+            return PanelMessage(title: l10n.msgDeniedTitle, detail: l10n.msgDeniedDetail,
+                                action: .settings, actionTitle: l10n.openSettingsAction)
         case .unselected:
-            return PanelMessage(title: "Choose your list", detail: "Choose lists in Settings to see their due and overdue tasks here.",
-                                action: .settings, actionTitle: "Choose a List")
+            return PanelMessage(title: l10n.msgUnselectedTitle, detail: l10n.msgUnselectedDetail,
+                                action: .settings, actionTitle: l10n.chooseListAction)
         case .unavailable:
-            return PanelMessage(title: "Tracked lists aren't available", detail: "They may have moved or been removed. Choose a list in Settings.",
-                                action: .settings, actionTitle: "Choose a List")
+            return PanelMessage(title: l10n.msgUnavailableTitle, detail: l10n.msgUnavailableDetail,
+                                action: .settings, actionTitle: l10n.chooseListAction)
         case .loading:
-            return PanelMessage(title: "Getting your reminders…", detail: "Your tasks will appear here when they're ready.")
+            return PanelMessage(title: l10n.msgLoadingTitle, detail: l10n.msgLoadingDetail)
         case .failed:
-            return PanelMessage(title: "Couldn't load your reminders", detail: "Your reminders haven't been changed. Try loading them again.",
-                                action: .refresh, actionTitle: "Try Again")
+            return PanelMessage(title: l10n.msgFailedTitle, detail: l10n.msgFailedDetail,
+                                action: .refresh, actionTitle: l10n.tryAgainAction)
         case .empty, .ready:
             if sourceTasks.isEmpty {
-                return PanelMessage(title: selectedCalendarIDs.count > 1 ? "Your lists are empty" : "Your list is empty", detail: "Add a reminder with a due date in Reminders.",
-                                    action: .openList, actionTitle: "Open Reminders")
+                return PanelMessage(
+                    title: l10n.msgEmptyListsTitle(multiple: selectedCalendarIDs.count > 1),
+                    detail: l10n.msgEmptyListsDetail,
+                    action: .openList,
+                    actionTitle: l10n.openRemindersAction
+                )
             }
             if sourceTasks.contains(where: { !$0.isCompleted && $0.dueDay == nil }) {
-                return PanelMessage(title: "Nothing due today", detail: "Undated reminders stay in Reminders. Add a due date to see them here.",
-                                    action: .openList, actionTitle: "Open Reminders")
+                return PanelMessage(
+                    title: l10n.msgUndatedTitle,
+                    detail: l10n.msgUndatedDetail,
+                    action: .openList,
+                    actionTitle: l10n.openRemindersAction
+                )
             }
             if let next = sourceTasks.filter({ !$0.isCompleted && ($0.dueDay ?? .distantPast) > today })
                 .compactMap(\.dueDay).min() {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.calendar = calendar
-                formatter.timeZone = calendar.timeZone
-                formatter.dateFormat = "EEEE, MMM d"
-                let date = calendar.isDate(next, inSameDayAs: calendar.date(byAdding: .day, value: 1, to: today)!)
-                    ? "tomorrow" : formatter.string(from: next)
-                return PanelMessage(title: "You're clear for today", detail: "Your next reminder is due \(date).")
+                let formatter = configuredFormatter(nextDueFormatter, format: l10n.nextDueDateFormat)
+                let isTomorrow = calendar.date(byAdding: .day, value: 1, to: today)
+                    .map { calendar.isDate(next, inSameDayAs: $0) } ?? false
+                let date = isTomorrow ? l10n.tomorrowWord : formatter.string(from: next)
+                return PanelMessage(title: l10n.msgFutureTitle, detail: l10n.msgFutureDetail(date))
             }
-            return PanelMessage(title: "Nothing scheduled today", detail: "A little room in your day. Due and overdue reminders will appear here.")
+            return PanelMessage(title: l10n.msgNothingScheduledTitle, detail: l10n.msgNothingScheduledDetail)
         }
+    }
+
+    func setLanguage(_ selection: AppLanguage) {
+        language.setLanguage(selection)
+    }
+
+    private func handleLanguageChange() {
+        objectWillChange.send()
+        onUpdate?()
     }
 
     func retryLoad() {
         guard !isRefreshing, !isMutating else { return }
+        #if DEBUG || DEMO
         if isDemo {
-            if let tasks = demoRecoveryTasks {
-                demoRecoveryTasks = nil
-                demoWriteBehavior = .normal
-                apply(tasks)
-            } else {
-                loadDemoData()
-            }
-        } else {
-            refreshCalendars()
-            reload(preservingContent: hasStatistics)
+            performDemoRetryLoad()
+            return
         }
+        #endif
+        refreshCalendars()
+        reload(preservingContent: hasStatistics)
     }
 
     func retryCompletion() async {
         guard let id = failedTaskID, taskErrorAction == .retryCompletion else { return }
+        #if DEBUG || DEMO
         if isDemo { demoWriteBehavior = .normal }
+        #endif
         await completeTask(id)
     }
 
@@ -232,33 +208,45 @@ final class TaskStore: ObservableObject {
         rowIdentityBridge?.new == task.id ? rowIdentityBridge!.old : task.id
     }
 
-    private let ek = EKEventStore()
-    private let defaults: UserDefaults
+    let ek = EKEventStore()
+    let defaults: UserDefaults
     private let workspace: NSWorkspace
-    private var loadID = UUID()
-    private var storeObserver: NSObjectProtocol?
-    private var timer: Timer?
-    private var accessTimer: Timer?
+    var loadID = UUID()
+    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    var accessTimer: Timer?
     private var debounceTask: Task<Void, Never>?
     private var loadTimeoutTask: Task<Void, Never>?
-    private(set) var isDemo = false
+    private var activeFetchCancel: (@Sendable () -> Void)?
 
-    private enum Keys {
+    enum Keys {
         static let calendarID = "SandNotch.trackedCalendar"
         static let calendarIDs = "SandNotch.trackedCalendars"
     }
 
     init(defaults: UserDefaults = .standard, workspace: NSWorkspace = .shared,
-         mutationService: ReminderMutationService? = nil) {
+         mutationService: (any ReminderMutationService)? = nil,
+         language: LanguageManager? = nil) {
         self.defaults = defaults
         self.workspace = workspace
         self.mutationService = mutationService
+        self.language = language ?? LanguageManager(defaults: defaults)
         if let ids = defaults.object(forKey: Keys.calendarIDs) as? [String] {
             selectedCalendarIDs = Set(ids.filter { !$0.isEmpty })
         } else {
             selectedCalendarIDs = Set([defaults.string(forKey: Keys.calendarID)].compactMap { $0 })
         }
         expandedMode = "today"
+        self.language.onChange = { [weak self] in self?.handleLanguageChange() }
+    }
+
+    deinit {
+        accessTimer?.invalidate()
+        debounceTask?.cancel()
+        loadTimeoutTask?.cancel()
+        activeFetchCancel?()
+        for entry in observers {
+            entry.center.removeObserver(entry.token)
+        }
     }
 
     // MARK: - 日历
@@ -271,25 +259,16 @@ final class TaskStore: ObservableObject {
     }
 
     var monthDayCount: Int {
-        calendar.range(of: .day, in: .month, for: today)?.count ?? 30
+        TaskStatistics.monthDayCount(for: today, calendar: calendar)
     }
 
     /// 本月 7 列网格（周一开头，空位 nil）
     var monthRows: [[Int?]] {
-        guard let first = calendar.dateInterval(of: .month, for: today)?.start else { return [] }
-        let weekday = calendar.component(.weekday, from: first)
-        let offset = (weekday + 5) % 7
-        var cells: [Int?] = Array(repeating: nil, count: offset)
-        cells.append(contentsOf: (1...monthDayCount).map { Optional($0) })
-        while cells.count % 7 != 0 { cells.append(nil) }
-        return stride(from: 0, to: cells.count, by: 7).map {
-            Array(cells[$0 ..< min($0 + 7, cells.count)])
-        }
+        TaskStatistics.monthRows(for: today, calendar: calendar)
     }
 
     func date(inMonth day: Int) -> Date? {
-        guard let start = calendar.dateInterval(of: .month, for: today)?.start else { return nil }
-        return calendar.date(byAdding: .day, value: day - 1, to: start)
+        TaskStatistics.date(inMonth: day, today: today, calendar: calendar)
     }
 
     // MARK: - 统计
@@ -305,19 +284,22 @@ final class TaskStore: ObservableObject {
 
     var todaySummary: String? {
         guard hasStatistics else { return nil }
-        if todayStat.isEmpty { return "Nothing scheduled today." }
-        return todayStat.isFull ? "All done for today." : nil
+        if todayStat.isEmpty { return l10n.summaryEmptyToday }
+        return todayStat.isFull ? l10n.summaryAllDoneToday : nil
     }
 
     func monthDetail(for date: Date) -> String {
         let day = calendar.startOfDay(for: date)
-        if dayDetailFormatter.timeZone != calendar.timeZone { dayDetailFormatter.timeZone = calendar.timeZone }
-        let title = (day == today ? "Today · " : "") + dayDetailFormatter.string(from: day)
-        if day > today { return "\(title)\nUpcoming" }
+        let formatter = configuredFormatter(dayDetailFormatter, format: l10n.dayDetailDateFormat)
         let stat = stat(for: day)
-        if stat.isEmpty { return "\(title)\nNothing scheduled" }
-        let percent = Int((stat.ratio * 100).rounded())
-        return "\(title)\n\(stat.done)/\(stat.due) completed · \(percent)%"
+        return l10n.monthDetail(
+            formattedDate: formatter.string(from: day),
+            isToday: day == today,
+            isFuture: day > today,
+            due: stat.due,
+            done: stat.done,
+            ratio: stat.ratio
+        )
     }
 
     var monthStats: [DayStat] { (0..<monthDayCount).compactMap { date(inMonth: $0 + 1) }.map { stat(for: $0) } }
@@ -328,14 +310,14 @@ final class TaskStore: ObservableObject {
     var completedTasks: [TrackedTask] { todayTasks.filter { $0.isCompleted } }
 
     var monthTitle: String {
-        if monthNameFormatter.timeZone != calendar.timeZone { monthNameFormatter.timeZone = calendar.timeZone }
-        return monthNameFormatter.string(from: today)
+        let formatter = configuredFormatter(monthNameFormatter, format: l10n.monthNameDateFormat)
+        return formatter.string(from: today)
     }
     var monthFullDays: Int { monthStats.filter { $0.day <= today && $0.isFull }.count }
 
     var selectedCalendarName: String {
-        guard !selectedCalendars.isEmpty else { return "No list selected" }
-        return selectedCalendars.count == 1 ? selectedCalendars[0].title : "\(selectedCalendars.count) lists"
+        guard !selectedCalendars.isEmpty else { return l10n.noListSelected }
+        return selectedCalendars.count == 1 ? selectedCalendars[0].title : l10n.multipleListsName(selectedCalendars.count)
     }
 
     var sourceName: String {
@@ -345,17 +327,8 @@ final class TaskStore: ObservableObject {
     enum PanelStatus {
         case awaitingAccess, denied, unselected, unavailable, loading, failed, empty, ready
 
-        var title: String {
-            switch self {
-            case .awaitingAccess: return "Waiting for Reminders access"
-            case .denied: return "Reminders access required"
-            case .unselected: return "Choose a list to track"
-            case .unavailable: return "Tracked list unavailable"
-            case .loading: return "Loading reminders…"
-            case .failed: return "Unable to load reminders"
-            case .empty: return "No tasks for today"
-            case .ready: return "Completed / Today’s tasks"
-            }
+        func title(with l10n: L10n) -> String {
+            l10n.panelStatusTitle(for: self)
         }
 
         var symbol: String {
@@ -379,11 +352,16 @@ final class TaskStore: ObservableObject {
     }
 
     var hasStatistics: Bool {
-        (!isDemo || demoStatus == nil) && access == .granted && hasSelectedCalendar && loaded && appliedDay == today
+        #if DEBUG || DEMO
+        if isDemo && demoStatus != nil { return false }
+        #endif
+        return access == .granted && hasSelectedCalendar && loaded && appliedDay == today
     }
 
     var panelStatus: PanelStatus {
+        #if DEBUG || DEMO
         if isDemo, let demoStatus { return demoStatus }
+        #endif
         switch access {
         case .unknown: return .awaitingAccess
         case .denied: return .denied
@@ -426,15 +404,20 @@ final class TaskStore: ObservableObject {
         selectedCalendarIDs = ids
         defaults.set(ids.sorted(), forKey: Keys.calendarIDs)
         lastError = nil
+        #if DEBUG || DEMO
         demoStatus = nil
+        #endif
         statsByDay = [:]
         todayTasks = []
         sourceTasks = []
+        #if DEBUG || DEMO
         if isDemo {
             if !ids.isEmpty { apply(demoTasks.filter { $0.calendarID.map(ids.contains) ?? false }) }
-        } else {
-            reload()
+            onUpdate?()
+            return
         }
+        #endif
+        reload()
         onUpdate?()
     }
 
@@ -445,8 +428,8 @@ final class TaskStore: ObservableObject {
     }
 
     func start() {
-        observeStoreChanges()
-        startTimer()
+        observeSystemEvents()
+        updateAccessWatch()
     }
 
     func requestAccessAndLoad() async {
@@ -454,12 +437,14 @@ final class TaskStore: ObservableObject {
         let status = authorizationStatus
         if status == .fullAccess {
             access = .granted
+            updateAccessWatch()
             refreshCalendars()
             reload()
             return
         }
         if status == .denied || status == .restricted {
             access = .denied
+            updateAccessWatch()
             onUpdate?()
             return
         }
@@ -471,6 +456,7 @@ final class TaskStore: ObservableObject {
             access = .denied
             lastError = error.localizedDescription
         }
+        updateAccessWatch()
         if access == .granted {
             refreshCalendars()
             reload()
@@ -484,13 +470,14 @@ final class TaskStore: ObservableObject {
         let status = authorizationStatus
         if status == .denied || status == .restricted {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
-                NSWorkspace.shared.open(url)
+                workspace.open(url)
             }
             return
         }
         do {
             let granted = try await ek.requestFullAccessToReminders()
             access = granted ? .granted : .denied
+            updateAccessWatch()
             if granted {
                 refreshCalendars()
                 reload()
@@ -499,6 +486,7 @@ final class TaskStore: ObservableObject {
             }
         } catch {
             access = .denied
+            updateAccessWatch()
             onUpdate?()
         }
     }
@@ -514,6 +502,9 @@ final class TaskStore: ObservableObject {
         if isMutating { reloadAfterMutation = true; return }
         loadID = UUID()
         loadTimeoutTask?.cancel()
+        loadTimeoutTask = nil
+        activeFetchCancel?()
+        activeFetchCancel = nil
         isRefreshing = false
         guard access == .granted else {
             statsByDay = [:]
@@ -546,16 +537,22 @@ final class TaskStore: ObservableObject {
         loadTimeoutTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
             guard let self, self.loadID == requestID, self.isRefreshing else { return }
+            self.activeFetchCancel?()
+            self.activeFetchCancel = nil
             self.finishLoad(nil, requestID: requestID, calendarIDs: ids, day: requestDay)
             // Ignore a late response after the user has been offered a retry.
             if self.loadID == requestID { self.loadID = UUID() }
         }
         if needsPresentationUpdate { onUpdate?() }
-        let predicate = ek.predicateForReminders(in: targets)
-        ek.fetchReminders(matching: predicate) { [weak self] reminders in
-            guard let self else { return }
+        let completedSince = TaskStatistics.completedHistoryStart(for: requestDay, calendar: cal)
+        activeFetchCancel = ScopedReminderFetch.start(
+            store: ek,
+            calendars: targets,
+            completedSince: completedSince
+        ) { [weak self] reminders in
             let tasks = reminders?.map { TrackedTask(reminder: $0, calendar: cal) }
             DispatchQueue.main.async {
+                guard let self else { return }
                 guard self.authorizationStatus == .fullAccess else {
                     self.syncAccess()
                     return
@@ -565,7 +562,7 @@ final class TaskStore: ObservableObject {
         }
     }
 
-    private func finishLoad(_ tasks: [TrackedTask]?, requestID: UUID, calendarIDs: Set<String>, day: Date) {
+    func finishLoad(_ tasks: [TrackedTask]?, requestID: UUID, calendarIDs: Set<String>, day: Date) {
         guard requestID == loadID, selectedCalendarIDs == calendarIDs,
               access == .granted, hasSelectedCalendar else { return }
         guard calendar.startOfDay(for: Date()) == day else {
@@ -575,8 +572,9 @@ final class TaskStore: ObservableObject {
         isRefreshing = false
         loadTimeoutTask?.cancel()
         loadTimeoutTask = nil
+        activeFetchCancel = nil
         guard let tasks else {
-            lastError = "Unable to read reminders. Please try again."
+            lastError = l10n.readRemindersFailed
             onUpdate?()
             return
         }
@@ -584,22 +582,6 @@ final class TaskStore: ObservableObject {
         apply(tasks.filter { task in
             task.calendarID.map(availableIDs.contains) ?? (calendarIDs.count == 1)
         })
-    }
-
-    /// A task belongs to its due day, then each overdue day through its completion day.
-    /// Early completion stays credited to the due day; future work is not pulled forward.
-    private func belongs(_ task: TrackedTask, to day: Date) -> Bool {
-        guard let due = task.dueDay, due <= day else { return false }
-        if due == day || !task.isCompleted { return true }
-        guard let completed = task.completedDay else { return false }
-        return completed >= day
-    }
-
-    private func completed(_ task: TrackedTask, by day: Date) -> Bool {
-        guard task.isCompleted else { return false }
-        // A missing completion date cannot establish a past day's completion.
-        guard let completed = task.completedDay else { return day == today }
-        return completed <= day
     }
 
     func setPresentationDeferred(_ deferred: Bool) {
@@ -615,12 +597,13 @@ final class TaskStore: ObservableObject {
         apply(pending.tasks)
     }
 
-    private func apply(_ tasks: [TrackedTask]) {
+    func apply(_ tasks: [TrackedTask]) {
         if presentationDeferred {
             pendingApply = (tasks, loadID, selectedCalendarIDs, today)
             return
         }
         var tasks = tasks
+        #if DEBUG || DEMO
         if isDemo {
             let fallbackID = selectedCalendars.first?.calendarIdentifier
             tasks = tasks.map { task in
@@ -630,22 +613,14 @@ final class TaskStore: ObservableObject {
             }
             demoTasks = demoTasks.filter { !selectedCalendarIDs.contains($0.calendarID ?? "") } + tasks
         }
+        #endif
         let canonical = tasks.sorted { $0.id < $1.id }
         guard !loaded || lastError != nil || taskError != nil || sourceTasks != canonical || appliedDay != today else { return }
         sourceTasks = canonical
         appliedDay = today
-        var stats: [Date: DayStat] = [:]
-        let first = calendar.dateInterval(of: .month, for: today)!.start
-        var day = first
-        while day <= today {
-            let workload = tasks.filter { belongs($0, to: day) }
-            stats[day] = DayStat(day: day, due: workload.count,
-                                 done: workload.filter { completed($0, by: day) }.count)
-            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
-            day = next
-        }
-        statsByDay = stats
-        todayTasks = tasks.filter { belongs($0, to: today) }.sorted(by: TrackedTask.precedes)
+        let cal = calendar
+        statsByDay = TaskStatistics.monthStats(for: tasks, today: today, calendar: cal)
+        todayTasks = TaskStatistics.todayTasks(for: tasks, today: today)
 
         lastError = nil
         taskError = nil
@@ -657,7 +632,7 @@ final class TaskStore: ObservableObject {
 
     // MARK: - Completion editing
 
-    private func resetTaskInteraction() {
+    func resetTaskInteraction() {
         activeMutationID = nil
         isMutating = false
         savingTaskID = nil
@@ -672,6 +647,8 @@ final class TaskStore: ObservableObject {
         isRefreshing = false
         loadTimeoutTask?.cancel()
         loadTimeoutTask = nil
+        activeFetchCancel?()
+        activeFetchCancel = nil
         let waiter = presentationWaiter
         presentationWaiter = nil
         waiter?.resume()
@@ -686,6 +663,7 @@ final class TaskStore: ObservableObject {
         guard let listID = task.calendarID ?? (selection.count == 1 ? selection.first : nil),
               selectedCalendars.contains(where: { $0.calendarIdentifier == listID }) else { return }
         let day = today
+        let cal = calendar
         let wasGolden = todayStat.isFull
         let originalIndex = presentationTasks.firstIndex(where: { $0.id == id }) ?? 0
         activeMutationID = token
@@ -697,6 +675,8 @@ final class TaskStore: ObservableObject {
         isRefreshing = false
         loadTimeoutTask?.cancel()
         loadTimeoutTask = nil
+        activeFetchCancel?()
+        activeFetchCancel = nil
         pendingApply = nil
         debounceTask?.cancel()
         onUpdate?()
@@ -717,18 +697,19 @@ final class TaskStore: ObservableObject {
         }
         do {
             let result: ReminderMutationResult
+            #if DEBUG || DEMO
             if isDemo {
-                try await Task.sleep(nanoseconds: demoWriteBehavior == .slow ? 900_000_000 : 100_000_000)
-                if demoWriteBehavior == .failed { throw NSError(domain: "Glitter.Demo", code: 1) }
-                result = demoMutation(task)
-                if demoWriteBehavior == .unconfirmed {
-                    demoRecoveryTasks = result.tasks
-                    throw ReminderMutationError.refreshAfterSave
-                }
+                result = try await performDemoMutation(task)
             } else {
-                result = try await (mutationService ?? EventKitReminderMutation()).setCompleted(
-                    true, task: task, calendarID: listID, calendar: calendar)
+                let completedSince = TaskStatistics.completedHistoryStart(for: day, calendar: cal)
+                result = try await (mutationService ?? defaultMutationService).setCompleted(
+                    true, task: task, calendarID: listID, calendar: cal, completedSince: completedSince)
             }
+            #else
+            let completedSince = TaskStatistics.completedHistoryStart(for: day, calendar: cal)
+            result = try await (mutationService ?? defaultMutationService).setCompleted(
+                true, task: task, calendarID: listID, calendar: cal, completedSince: completedSince)
+            #endif
             guard activeMutationID == token, selectedCalendarIDs == selection,
                   today == day, access == .granted else { return }
             while presentationDeferred && activeMutationID == token {
@@ -739,11 +720,11 @@ final class TaskStore: ObservableObject {
             savingTaskID = nil
             // A short-lived animation identity only; row order comes solely from native fields.
             if let newID = result.completedOccurrenceID,
-               !result.tasks.contains(where: { $0.id == id && belongs($0, to: today) }) {
+               !result.tasks.contains(where: { $0.id == id && TaskStatistics.belongs($0, to: today) }) {
                 rowIdentityBridge = (old: id, new: newID)
             }
             let completedID = result.completedOccurrenceID ?? id
-            if result.tasks.contains(where: { $0.id == completedID && $0.isCompleted && belongs($0, to: today) }) {
+            if result.tasks.contains(where: { $0.id == completedID && $0.isCompleted && TaskStatistics.belongs($0, to: today) }) {
                 completionAnchor = (id: completedID, index: originalIndex)
             }
             let retained = isDemo ? [] : sourceTasks.filter { $0.calendarID != nil && $0.calendarID != listID }
@@ -777,99 +758,50 @@ final class TaskStore: ObservableObject {
             let reason = error as? ReminderMutationError
             needsReconciliation = reason == .refreshAfterSave || reason == .changed || reason == .unavailable || reason == .access
             taskErrorAction = needsReconciliation ? .refresh : .retryCompletion
-            taskError = reason?.errorDescription ?? "Your reminder is still here. Try again when you're ready."
+            taskError = reason?.localizedDescription(with: l10n) ?? l10n.genericCompletionFailed
             onUpdate?()
         }
         // Protect the new position until its fade-in has settled.
         try? await Task.sleep(nanoseconds: Self.interactionProtection)
     }
 
-    private func demoMutation(_ task: TrackedTask) -> ReminderMutationResult {
-        let clock = calendar.dateComponents([.hour, .minute, .second], from: Date())
-        let now = calendar.date(bySettingHour: clock.hour ?? 12, minute: clock.minute ?? 0,
-                                second: clock.second ?? 0, of: today)!
-        let newID = task.isRecurring ? UUID().uuidString : task.id
-        let changed = TrackedTask(id: newID, title: task.title, dueDay: task.dueDay,
-                                  completedDay: today,
-                                  isCompleted: true, priority: task.priority,
-                                  dueDate: task.dueDate, completionDate: now, calendarID: task.calendarID)
-        var tasks = sourceTasks.filter { $0.id != task.id }
-        tasks.append(changed)
-        if task.isRecurring {
-            let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-            tasks.append(TrackedTask(id: task.id, title: task.title, dueDay: tomorrow,
-                                     completedDay: nil, isCompleted: false, priority: task.priority,
-                                     isRecurring: true, calendarID: task.calendarID))
-        }
-        return ReminderMutationResult(tasks: tasks,
-                                      completedOccurrenceID: newID == task.id ? nil : newID)
-    }
-
-    func loadSaveFailureDemoData(taskCount: Int = 5) {
-        loadDemoData(taskCount: taskCount, completedCount: 2)
-        demoWriteBehavior = .failed
-    }
-
-    func loadSlowSaveDemoData() {
-        loadDemoData(taskCount: 1, completedCount: 0)
-        demoWriteBehavior = .slow
-    }
-
-    func loadUnconfirmedSaveDemoData() {
-        loadDemoData(taskCount: 1, completedCount: 0)
-        demoWriteBehavior = .unconfirmed
-    }
-
-    func loadStatusDemoData(_ status: PanelStatus) {
-        loadDemoData()
-        if status == .unselected { selectedCalendarIDs = [] }
-        if status == .unavailable { selectedCalendarIDs = ["demo-unavailable"] }
-        demoStatus = status
-        onUpdate?()
-    }
-
-    func loadStaleDemoData() {
-        loadDemoData()
-        lastError = "Demo refresh failure"
-        onUpdate?()
-    }
-
-    func loadUndatedDemoData() {
-        loadDemoData(taskCount: 0, completedCount: 0)
-        apply(sourceTasks + [TrackedTask(id: "demo-undated", title: "A reminder without a date",
-                                        dueDay: nil, completedDay: nil, isCompleted: false)])
-    }
-
-    func loadFutureDemoData() {
-        loadDemoData(taskCount: 0, completedCount: 0)
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        apply(sourceTasks + [TrackedTask(id: "demo-future", title: "Read tomorrow",
-                                        dueDay: tomorrow, completedDay: nil, isCompleted: false)])
-    }
-
-    func loadEmptyListDemoData() {
-        loadDemoData()
-        apply([])
-    }
-
-    func loadLongTitleDemoData() {
-        loadDemoData(taskCount: 0, completedCount: 0)
-        let title = "Read the chapter and make a short note about each idea:\n\nWhat surprised you?\nWhat would you like to try?\nWhat will you remember tomorrow?\n\nTake your time. A long reminder should remain readable, even when it continues below the preview."
-        apply(sourceTasks + [TrackedTask(id: "demo-long-title", title: title, dueDay: today,
-                                        completedDay: nil, isCompleted: false)])
-    }
-
     // MARK: - 监听
 
-    private func observeStoreChanges() {
-        guard storeObserver == nil else { return }
-        storeObserver = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged,
-            object: ek,
-            queue: .main
-        ) { [weak self] _ in
+    private func observeSystemEvents() {
+        guard observers.isEmpty else { return }
+        let defaultCenter = NotificationCenter.default
+        let workspaceCenter = workspace.notificationCenter
+
+        let storeToken = defaultCenter.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.scheduleReload() }
         }
+        let dayToken = defaultCenter.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        let clockToken = defaultCenter.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.tick(forceReload: true) }
+        }
+        let zoneToken = defaultCenter.addObserver(forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.tick(forceReload: true) }
+        }
+        let activeToken = defaultCenter.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.syncAccess() }
+        }
+        let wakeToken = workspaceCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.syncAccess()
+                self?.tick()
+            }
+        }
+
+        observers = [
+            (defaultCenter, storeToken),
+            (defaultCenter, dayToken),
+            (defaultCenter, clockToken),
+            (defaultCenter, zoneToken),
+            (defaultCenter, activeToken),
+            (workspaceCenter, wakeToken)
+        ]
     }
 
     private func scheduleReload() {
@@ -882,18 +814,12 @@ final class TaskStore: ObservableObject {
         }
     }
 
-    private func startTimer() {
-        startAccessWatch()
-        guard timer == nil else { return }
-        let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+    func updateAccessWatch() {
+        guard !isDemo, access != .granted else {
+            accessTimer?.invalidate()
+            accessTimer = nil
+            return
         }
-        t.tolerance = 3
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-    }
-
-    private func startAccessWatch() {
         guard accessTimer == nil else { return }
         let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.syncAccess() }
@@ -903,18 +829,20 @@ final class TaskStore: ObservableObject {
         accessTimer = t
     }
 
-    private func syncAccess() {
+    func syncAccess() {
         guard !isDemo else { return }
         switch authorizationStatus {
         case .fullAccess:
             if access != .granted {
                 access = .granted
+                updateAccessWatch()
                 refreshCalendars()
                 reload()
             }
         case .denied, .restricted:
             if access != .denied {
                 access = .denied
+                updateAccessWatch()
                 loadID = UUID()
                 resetTaskInteraction()
                 sourceTasks = []
@@ -927,6 +855,7 @@ final class TaskStore: ObservableObject {
         default:
             if access != .unknown {
                 access = .unknown
+                updateAccessWatch()
                 loadID = UUID()
                 resetTaskInteraction()
                 sourceTasks = []
@@ -967,79 +896,10 @@ final class TaskStore: ObservableObject {
         }
     }
 
-    // MARK: - 调试
-
-    /// 假数据覆盖零任务、零完成、全部八阶金色与未来日期，今天默认 2/5
-    func loadDemoData(taskCount: Int = 5, completedCount: Int = 2) {
-        resetTaskInteraction()
-        loadID = UUID()
-        pendingApply = nil
-        loaded = false
-        demoStatus = nil
-        demoWriteBehavior = .normal
-        demoRecoveryTasks = nil
-        isDemo = true
-        access = .granted
-        if calendars.count != 3 || !calendars.allSatisfy({ $0.title.hasPrefix("Demo · ") }) {
-            calendars = ["Daily Habits", "Learning", "Personal"].map { title in
-                let list = EKCalendar(for: .reminder, eventStore: ek)
-                list.title = "Demo · " + title
-                return list
-            }
-        }
-        selectedCalendarIDs = [calendars[0].calendarIdentifier]
-        let cal = calendar
-        if let start = cal.dateInterval(of: .month, for: today)?.start,
-           let fake = cal.date(byAdding: .day, value: 25, to: start) {
-            today = cal.startOfDay(for: fake)
-        }
-        demoTasks = [
-            TrackedTask(id: "demo-learning", title: "Practice a new skill", dueDay: today,
-                        completedDay: nil, isCompleted: false, calendarID: calendars[1].calendarIdentifier),
-            TrackedTask(id: "demo-personal", title: "Take a walk", dueDay: today,
-                        completedDay: nil, isCompleted: false, calendarID: calendars[2].calendarIdentifier)
-        ]
-
-        var tasks: [TrackedTask] = []
-        var seq = 0
-        for day in 1...26 {
-            guard let d = date(inMonth: day) else { continue }
-            let sample = [2, 5, 8, 11, 14, 17, 20, 23].firstIndex(of: day)
-            let due = day == 26 ? taskCount : sample != nil ? 10 : day == 24 ? 1 : 0
-            let done = day == 26 ? min(max(0, completedCount), due) : sample.map { [1, 2, 4, 5, 7, 8, 9, 10][$0] } ?? 0
-            for i in 0..<due {
-                seq += 1
-                // Close historical backlog on the next day, leaving subsequent samples independent.
-                let completion = i < done ? d : day < 26 ? cal.date(byAdding: .day, value: 1, to: d) : nil
-                tasks.append(TrackedTask(
-                    id: "demo-\(seq)",
-                    title: day == 26
-                        ? ["Read the next chapter", "Review lecture notes", "Finish the exercise", "Organize study materials", "Study for the midterm"][i % 5]
-                        : "Demo \(seq)",
-                    dueDay: d, completedDay: completion, isCompleted: completion != nil,
-                    priority: day == 26 ? [1, 5, 9, 0, 1][i % 5] : 0))
-            }
-        }
-        apply(tasks)
-    }
-
-    func loadOverdueDemoData(completed: Bool = false) {
-        loadDemoData()
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
-        let tasks = (0..<3).map { index in
-            TrackedTask(id: "overdue-demo-\(index)",
-                        title: ["Yesterday’s recurring reminder", "Read the next chapter", "Review lecture notes"][index],
-                        dueDay: index == 0 ? yesterday : today,
-                        completedDay: completed ? today : nil, isCompleted: completed,
-                        isRecurring: index == 0 && !completed)
-        }
-        apply(tasks)
-    }
-
-    private func tick() {
+    func tick(forceReload: Bool = false) {
         guard !isDemo else { return }
         let now = calendar.startOfDay(for: Date())
-        guard now != today else { return }
+        guard forceReload || now != today else { return }
         today = now
         reload()
     }

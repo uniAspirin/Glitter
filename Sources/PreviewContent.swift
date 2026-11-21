@@ -49,7 +49,8 @@ private struct PanelPreview: View {
             $0.height(width: geometry.contentWidth, compact: true) + geometry.padding
         } ?? 0
         if store.hasStatistics && !store.todayTasks.isEmpty {
-            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary)
+            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary,
+                                  untitledFallback: store.l10n.untitledReminder)
         } else {
             geometry.measureMessage(store.panelMessage)
         }

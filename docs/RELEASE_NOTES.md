@@ -1,3 +1,27 @@
+# Glitter 1.3
+
+## English
+
+- Scoped EventKit reads to incomplete reminders and recent completions (`month start - 1 month`) instead of loading unbounded historical records, and moved EventKit completion writes and recurrence reconciliation onto a dedicated background actor.
+- Replaced idle background polling with event-driven lifecycle updates: day-rollover, clock/timezone, wake, and app-activation notifications replace the 30-second day timer, while the permission and hover timers run strictly on demand.
+- Added full Simplified Chinese and English localization (including system Reminders permission prompts) and an in-app Language picker in Settings (`Follow System` / `English` / `简体中文`) with live UI, date formatter, menu, and render-cache updates.
+- Modernized architecture and engineering quality: introduced pure value-type `DisplayMetrics`, extracted pure `TaskStatistics`, isolated Demo fixtures under `DEBUG`/`DEMO` so Release builds exclude them, unified version metadata in `Config/Version.xcconfig`, reused a persistent offscreen render-cache window, fixed `DateFormatter` reuse and `DemoDefaults.bool(forKey:)` isolation, added the standard `GlitterTests` XCTest target in Xcode, and added GitHub Actions CI.
+
+Validated with 18 XCTest cases across 10 test suites using fictional tasks.
+
+Requires macOS 14 or later and Apple Silicon. The app uses ad-hoc signing and has not been notarized by Apple. macOS may require approval under System Settings → Privacy & Security → Open Anyway.
+
+## 简体中文
+
+- 优化 EventKit 查询与写入性能：将提醒事项读取收敛为“全部未完成 + 近两月内已完成”，并将完成写入与重复任务校验移出主线程，由独立后台 `actor` 执行。
+- 用系统事件替代常驻轮询：通过日期变更、系统时钟/时区、睡眠唤醒和应用激活通知取代 30 秒跨日定时器，权限监听与悬停兜底定时器改为按需启停，折叠空闲期零定时唤醒。
+- 新增完整的中英双语本地化（含系统提醒事项权限弹窗文案），支持在设置中实时切换应用语言（跟随系统 / English / 简体中文），同步更新面板、月历、菜单、窗口标题与渲染缓存。
+- 架构与工程现代化：引入纯值类型 `DisplayMetrics`、拆分纯统计模块 `TaskStatistics`、在 Release 构建中移除 Demo 夹具代码、统一 `Config/Version.xcconfig` 单一版本源、复用常驻离屏渲染窗口、修复 `DateFormatter` 复用与 `DemoDefaults.bool(forKey:)` 隔离缺陷，并配置标准 Xcode `GlitterTests` 单元测试目标与 GitHub Actions CI。
+
+通过全部 10 个测试套件共 18 项 XCTest 假数据自动化测试。
+
+支持 macOS 14 及以上版本和 Apple Silicon。应用使用 ad-hoc 签名，尚未经过 Apple 公证。macOS 如阻止首次启动，可在系统设置 → 隐私与安全性中选择“仍要打开”。
+
 # Glitter 1.2
 
 ## English

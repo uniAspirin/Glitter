@@ -1,12 +1,12 @@
 # Privacy
 
-Glitter 1.2 processes reminders on your Mac through Apple's EventKit API. It makes no direct network requests and includes no advertising, analytics or application logging service.
+Glitter 1.3 processes reminders on your Mac through Apple's EventKit API. It makes no direct network requests and includes no advertising, analytics or application logging service.
 
 ## Data on your Mac
 
 Glitter reads list names to display the selection in Settings. It fetches reminder content from the selected lists, calculates progress in memory and writes completion changes back to the reminder's own list. It keeps no additional task database, daily history snapshots or application log files.
 
-The app stores selected list identifiers, your selected display, panel position, menu bar icon visibility in macOS preferences. Launch at Login is managed by macOS. Task content and rendered view caches live in memory for the running session.
+The app stores selected list identifiers, your selected display, panel position, menu bar icon visibility and language preference in macOS preferences. Launch at Login is managed by macOS. Task content and rendered view caches live in memory for the running session.
 
 Apple Reminders manages the underlying task records. If your list uses iCloud, Apple's services perform synchronization. Apple's data storage, synchronization and macOS diagnostic behavior follow your system settings.
 
@@ -32,7 +32,7 @@ These notes document a project self-review. They do not represent an independent
 
 Glitter 通过苹果 EventKit API 在本机读取和更新提醒事项，不主动发起网络请求，不含广告、统计追踪或应用日志。
 
-应用读取列表名称用于设置界面，从所选列表读取任务，在内存中计算完成比例，将点击完成的操作写回任务所属列表。不额外保存任务数据库、每日历史快照或日志文件。仅在 macOS 偏好设置中保存所选列表 ID、显示器、窗口位置、菜单栏图标显示设置，登录时启动由系统管理。
+应用读取列表名称用于设置界面，从所选列表读取任务，在内存中计算完成比例，将点击完成的操作写回任务所属列表。不额外保存任务数据库、每日历史快照或日志文件。仅在 macOS 偏好设置中保存所选列表 ID、显示器、窗口位置、菜单栏图标显示与语言偏好设置，登录时启动由系统管理。
 
 任务原始记录由苹果提醒事项管理。使用 iCloud 列表时，同步由苹果服务负责。苹果的数据存储、同步和系统诊断行为遵循你的系统设置。
 

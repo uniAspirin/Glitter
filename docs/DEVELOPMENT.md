@@ -1,6 +1,6 @@
 # Developing Glitter
 
-Glitter 1.2 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
+Glitter 1.3 targets Apple Silicon Macs running macOS 14 or later. Build with a recent Xcode Command Line Tools installation. It uses Swift, SwiftUI, AppKit, EventKit and ServiceManagement, with system frameworks as its only runtime dependencies.
 
 ## Xcode development / Xcode 开发
 
@@ -14,7 +14,7 @@ Open `Glitter.xcodeproj` directly (File → Open), rather than opening the repos
 
 中文：先打开原生工程，再选 **Glitter Demo / My Mac**。**⌘B** 编译，**⌘R** 运行，**⌘.** 停止。修改 SwiftUI 后可在 Canvas 查看假数据界面；涉及刘海位置和鼠标悬停时运行 Demo。预览代码仅在 Xcode 的 Debug / Demo 配置编译；原来的脚本构建不需要加载 Preview 宏插件。新增源码文件时，请同时加入 Glitter target 的 Compile Sources。
 
-The project uses Debug / Demo / Release configurations. Release omits preview fixtures. Existing script-based checks remain available under `Tests/run.sh`; they are not configured as an Xcode test target.
+The project uses Debug / Demo / Release configurations. Release omits preview and Demo fixtures (`DEMO` compilation flag is disabled in Release). Automated tests live in the `GlitterTests` Xcode unit-test target (**⌘U** in Xcode or `./Tests/run.sh`).
 
 ## Build and run
 
@@ -42,7 +42,7 @@ Settings includes Show Menu Bar Icon, enabled by default and persisted for regul
 ./Tests/run.sh
 ```
 
-The checks use fake tasks, simulated displays and a fake mutation service. Native views render to `build/review/`. Run these checks in a logged-in macOS desktop session. They cover statistics, selection migration, multi-list completion, sorting, gestures, layout, recovery and login-item behavior. They do not validate live iCloud synchronization or every EventKit recurrence rule.
+The XCTest suite uses fake tasks, `DisplayMetrics` fixtures and a fake mutation service. Native views render to `build/review/` when `GLITTER_REVIEW_OUTPUT` is set. Run these checks in a logged-in macOS desktop session (`⌘U` in Xcode or `./Tests/run.sh`). They cover statistics, scoped history windows, selection migration, multi-list completion, sorting, gestures, layout, recovery, localization and login-item behavior. They do not validate live iCloud synchronization or every EventKit recurrence rule.
 
 The separately invoked [manual API probe](../Tests/Manual/README.md) creates temporary test reminders and requires its own Reminders permission. It is not part of the automated checks.
 
@@ -50,14 +50,18 @@ The separately invoked [manual API probe](../Tests/Manual/README.md) creates tem
 
 | File | Responsibility |
 | --- | --- |
-| `Sources/TaskStore.swift` | List selection, EventKit reads, derived statistics, task sorting and completion presentation |
-| `Sources/ReminderMutation.swift` | Completion writes scoped to the reminder's own list, followed by a fresh read |
-| `Sources/NotchPanelController.swift` | Panel lifecycle, displays, hover, gestures and window animation |
+| `Config/Version.xcconfig` | Single source of truth for `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` |
+| `Sources/TaskStore.swift` | List selection, scoped EventKit reads, event-driven lifecycle and completion orchestration |
+| `Sources/TaskStatistics.swift` | Pure task sorting, daily/monthly statistics and scoped history window calculation |
+| `Sources/TaskStoreDemo.swift` | In-memory Demo fixtures and simulated failure states (`DEBUG` / `DEMO` only) |
+| `Sources/ReminderMutation.swift` | Off-main-actor scoped EventKit completion writes and recurrence reconciliation |
+| `Sources/Localization.swift` | In-app English / Simplified Chinese localization and `LanguageManager` persistence |
+| `Sources/NotchPanelController.swift` | Panel lifecycle, displays, on-demand hover watch, gestures and window animation |
 | `Sources/PanelView.swift` | Header controls, Day, Month, task rows and recovery views |
-| `Sources/Geometry.swift` | Shared dimensions, text measurement and interaction rectangles |
-| `Sources/PanelRenderCache.swift` | Cached native snapshots used during window transitions |
+| `Sources/Geometry.swift` | Value-type `DisplayMetrics`, shared dimensions, text measurement and interaction rectangles |
+| `Sources/PanelRenderCache.swift` | Cached native snapshots with persistent offscreen window reuse |
 | `Sources/Theme.swift` | Eight gold levels, neutral cells, progress text and glow |
-| `Sources/SettingsView.swift` | Tracked lists, display selection and startup settings |
+| `Sources/SettingsView.swift` | Tracked lists, display/language selection and startup settings |
 | `Sources/LoginItemManager.swift` | Native login-item registration and status |
 
 ## Data model
@@ -82,7 +86,7 @@ Single-line task rows are 26 pt tall with 4 pt of vertical padding on each side.
 ./package.sh
 ```
 
-This rebuilds the production app and creates `dist/Glitter-1.2.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
+This rebuilds the production app and creates `dist/Glitter-1.3.dmg` and its SHA-256 checksum. The DMG contains `Glitter.app` and an Applications shortcut. Install by dragging the app to Applications.
 
 The default build uses ad-hoc signing. A successful local signature check does not imply Apple notarization or Gatekeeper acceptance on another Mac. Gatekeeper may block an unnotarized download.
 

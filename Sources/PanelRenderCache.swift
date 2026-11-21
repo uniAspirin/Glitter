@@ -32,12 +32,19 @@ struct PanelSnapshot {
     }
 }
 
-/// Session-local Retina snapshots. Data and display changes invalidate both pages.
+/// Session-local Retina snapshots. Data, language and display changes invalidate both pages.
 @MainActor
 final class PanelRenderCache {
     enum Page: CaseIterable { case day, month }
-    private var geometry: NotchGeometry?
+
+    private struct CacheKey: Equatable {
+        let geometry: NotchGeometry
+        let language: AppLanguage.Resolved
+    }
+
+    private var cacheKey: CacheKey?
     private var images: [Page: PanelSnapshot] = [:]
+    private var renderWindow: NSWindow?
 
     func invalidate() { images.removeAll() }
 
@@ -48,17 +55,28 @@ final class PanelRenderCache {
     }
 
     func snapshot(page: Page, store: TaskStore, state: PanelState) -> PanelSnapshot? {
-        var key = state.geometry
-        key.showingMonth = false
-        key.horizontalOffset = 0
-        if geometry != key {
-            geometry = key
+        var normalized = state.geometry
+        normalized.showingMonth = false
+        normalized.horizontalOffset = 0
+        let key = CacheKey(geometry: normalized, language: store.language.resolved)
+        if cacheKey != key {
+            cacheKey = key
             invalidate()
         }
         if let cached = images[page] { return cached }
-        guard let result = autoreleasepool(invoking: { render(page: page, store: store, geometry: key) }) else { return nil }
+        guard let result = autoreleasepool(invoking: { render(page: page, store: store, geometry: normalized) }) else { return nil }
         images[page] = result
         return result
+    }
+
+    private func offscreenWindow(for frame: NSRect) -> NSWindow {
+        if let renderWindow {
+            renderWindow.setFrame(frame, display: false)
+            return renderWindow
+        }
+        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        renderWindow = window
+        return window
     }
 
     private func render(page: Page, store: TaskStore, geometry: NotchGeometry) -> PanelSnapshot? {
@@ -74,11 +92,10 @@ final class PanelRenderCache {
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []
-        // Use the same AppKit renderer as the live page so shadows retain their appearance.
-        // This window stays ordered out and is released after the cached bitmap is ready.
+        // Reuse a single ordered-out AppKit window so shadows retain their appearance without churn.
         let frame = NSRect(x: full.screenFrame.minX, y: full.screenFrame.maxY - size.height,
                            width: size.width, height: size.height)
-        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        let window = offscreenWindow(for: frame)
         window.contentView = hosting
         defer { window.contentView = nil }
         hosting.frame = NSRect(origin: .zero, size: size)

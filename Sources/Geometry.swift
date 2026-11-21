@@ -1,13 +1,60 @@
 import AppKit
 
 extension NSScreen {
-    var displayName: String {
-        if let id = displayID, CGDisplayIsBuiltin(id) != 0 { return "Built-in Display" }
-        return localizedName
-    }
-
     var displayID: CGDirectDisplayID? {
         (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+}
+
+struct DisplayMetrics: Equatable, Hashable, Identifiable, Sendable {
+    let id: CGDirectDisplayID
+    let frame: NSRect
+    let safeAreaTop: CGFloat
+    let notchWidth: CGFloat
+    let backingScaleFactor: CGFloat
+    let maximumFramesPerSecond: Int
+    let name: String
+    let isBuiltin: Bool
+
+    var hasNotch: Bool { safeAreaTop > 0 && notchWidth > 0 }
+
+    func displayLabel(strings: L10n) -> String {
+        let base = isBuiltin ? strings.builtInDisplay : name
+        return hasNotch ? "\(base) \(strings.notchSuffix)" : base
+    }
+
+    init(id: CGDirectDisplayID, frame: NSRect, safeAreaTop: CGFloat = 0, notchWidth: CGFloat = 0,
+         backingScaleFactor: CGFloat = 2, maximumFramesPerSecond: Int = 60,
+         name: String, isBuiltin: Bool = false) {
+        self.id = id
+        self.frame = frame
+        self.safeAreaTop = safeAreaTop
+        self.notchWidth = notchWidth
+        self.backingScaleFactor = backingScaleFactor
+        self.maximumFramesPerSecond = maximumFramesPerSecond
+        self.name = name
+        self.isBuiltin = isBuiltin
+    }
+
+    init?(screen: NSScreen) {
+        guard let id = screen.displayID else { return nil }
+        let safeTop = screen.safeAreaInsets.top
+        let notchWidth: CGFloat
+        if safeTop > 0, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            notchWidth = max(0, screen.frame.width - left.width - right.width)
+        } else {
+            notchWidth = 0
+        }
+        self.init(
+            id: id,
+            frame: screen.frame,
+            safeAreaTop: safeTop,
+            notchWidth: notchWidth,
+            backingScaleFactor: screen.backingScaleFactor,
+            maximumFramesPerSecond: screen.maximumFramesPerSecond,
+            name: screen.localizedName,
+            isBuiltin: CGDisplayIsBuiltin(id) != 0
+        )
     }
 }
 
@@ -93,17 +140,19 @@ struct NotchGeometry: Equatable {
                       width: width, height: collapsedHeight)
     }
 
-    mutating func measureToday(tasks: [TrackedTask], error: String?, summary: String?) {
+    mutating func measureToday(tasks: [TrackedTask], error: String?, summary: String?,
+                               untitledFallback: String = "Untitled reminder") {
         showsTaskContent = true
-        todayContentHeight = todayHeight(tasks: tasks, error: error, summary: summary)
+        todayContentHeight = todayHeight(tasks: tasks, error: error, summary: summary, untitledFallback: untitledFallback)
     }
     mutating func measureMessage(_ message: PanelMessage) {
         showsTaskContent = false
         todayContentHeight = message.height(width: contentWidth) + 4
     }
-    func todayHeight(tasks: [TrackedTask], error: String? = nil, summary: String? = nil) -> CGFloat {
+    func todayHeight(tasks: [TrackedTask], error: String? = nil, summary: String? = nil,
+                     untitledFallback: String = "Untitled reminder") -> CGFloat {
         var height: CGFloat = tasks.isEmpty ? 24 : 0
-        height += tasks.reduce(0) { $0 + taskHeight($1) }
+        height += tasks.reduce(0) { $0 + taskHeight($1, untitledFallback: untitledFallback) }
         if !tasks.isEmpty, summary != nil { height += Self.messageGap + 16 }
         if let error {
             let bounds = (error as NSString).boundingRect(with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
@@ -113,20 +162,21 @@ struct NotchGeometry: Equatable {
         return height
     }
 
-    func taskHeight(_ task: TrackedTask) -> CGFloat {
-        let title = task.title.isEmpty ? "Untitled reminder" : task.title
+    func taskHeight(_ task: TrackedTask, untitledFallback: String = "Untitled reminder") -> CGFloat {
+        let title = task.title.isEmpty ? untitledFallback : task.title
         let bounds = (title as NSString).boundingRect(with: NSSize(width: taskTextWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: NSFont.systemFont(ofSize: Self.taskFontSize)])
         return max(Self.taskRowHeight, ceil(bounds.height) + 1) + 2 * Self.taskRowPadding
     }
 
-    func taskInteractionRects(tasks: [TrackedTask], in frame: NSRect) -> [(id: String, rect: NSRect)] {
+    func taskInteractionRects(tasks: [TrackedTask], in frame: NSRect,
+                              untitledFallback: String = "Untitled reminder") -> [(id: String, rect: NSRect)] {
         // A scrolling list uses each native row's hover, which follows the scroll offset.
         guard !showingMonth, !dayScrolls else { return [] }
         var top = frame.maxY - monthTop
         var result: [(id: String, rect: NSRect)] = []
         for task in tasks {
-            let height = taskHeight(task)
+            let height = taskHeight(task, untitledFallback: untitledFallback)
             if !task.isCompleted {
                 result.append((task.id, NSRect(x: frame.minX, y: top - height,
                                               width: frame.width, height: height)))
@@ -161,25 +211,23 @@ struct NotchGeometry: Equatable {
         return clamped < 0 ? -clearance : clearance
     }
 
-    static func referenceNotchWidth(in screens: [NSScreen]) -> CGFloat? {
-        guard let screen = screens.first(where: { $0.safeAreaInsets.top > 0 && $0.auxiliaryTopLeftArea != nil }),
-              let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
-        return screen.frame.width - left.width - right.width
+    static func referenceNotchWidth(in displays: [DisplayMetrics]) -> CGFloat? {
+        displays.first(where: \.hasNotch)?.notchWidth
     }
 
-    static func make(for screen: NSScreen?, rows: Int, offset: CGFloat, scoreText: String = "0/0",
+    static func make(for display: DisplayMetrics?, rows: Int, offset: CGFloat, scoreText: String = "0/0",
                      todayHeight: CGFloat = 24, showingMonth: Bool = false, referenceNotchWidth: CGFloat? = nil) -> NotchGeometry {
-        let frame = screen?.frame ?? .zero
-        let safeTop = screen?.safeAreaInsets.top ?? 0
-        let hasNotch = safeTop > 0 && screen?.auxiliaryTopLeftArea != nil
-        var notchWidth = referenceNotchWidth ?? Self.referenceNotchWidth(in: NSScreen.screens) ?? 0
-        if hasNotch, let screen, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
-            notchWidth = screen.frame.width - left.width - right.width
+        let frame = display?.frame ?? .zero
+        let hasNotch = display?.hasNotch ?? false
+        var notchWidth = referenceNotchWidth ?? 0
+        if hasNotch, let display {
+            notchWidth = display.notchWidth
         }
         var geometry = NotchGeometry(screenFrame: frame, hasNotch: hasNotch,
-                                     notchHeight: hasNotch ? safeTop : 0, notchWidth: notchWidth,
+                                     notchHeight: hasNotch ? (display?.safeAreaTop ?? 0) : 0,
+                                     notchWidth: notchWidth,
                                      rows: min(max(rows, 1), 6))
-        geometry.displayScale = screen?.backingScaleFactor ?? 1
+        geometry.displayScale = display?.backingScaleFactor ?? 1
         geometry.todayContentHeight = todayHeight
         geometry.showingMonth = showingMonth
         let base = NSFont.monospacedDigitSystemFont(ofSize: Self.scoreFontSize, weight: .semibold)

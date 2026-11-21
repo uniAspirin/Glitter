@@ -6,26 +6,39 @@ struct SettingsView: View {
     @ObservedObject var store: TaskStore
     @ObservedObject var controller: NotchPanelController
     @ObservedObject var loginItems: LoginItemManager
+    @ObservedObject var language: LanguageManager
 
-    private var screens: [NSScreen] { controller.screens }
+    private var displays: [DisplayMetrics] { controller.displays }
+    private var l10n: L10n { language.strings }
     let onRequestAccess: () -> Void
+
+    init(store: TaskStore, controller: NotchPanelController, loginItems: LoginItemManager,
+         onRequestAccess: @escaping () -> Void) {
+        self.store = store
+        self.controller = controller
+        self.loginItems = loginItems
+        self.language = store.language
+        self.onRequestAccess = onRequestAccess
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            title("Tracked List")
-            subtitle("Create a Daily Habit list in Reminders. Set your repeats, then choose your list here. (hold ⌘ to choose more lists)")
+            title(l10n.settingsTrackedList)
+            subtitle(l10n.settingsTrackedListSubtitle)
 
             if store.access != .granted {
                 HStack(spacing: 10) {
-                    Text("Reminders access is required.")
+                    Text(l10n.settingsAccessRequired)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button(store.access == .denied ? "System Settings" : "Allow Access") { onRequestAccess() }
+                    Button(store.access == .denied ? l10n.settingsSystemSettings : l10n.settingsAllowAccess) {
+                        onRequestAccess()
+                    }
                 }
                 .padding(.top, 10)
             } else if store.calendars.isEmpty {
-                Text("No reminder lists found.")
+                Text(l10n.settingsNoListsFound)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .padding(.top, 10)
@@ -45,17 +58,17 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 18)
 
-            title("Display")
+            title(l10n.settingsDisplay)
             HStack {
-                Text("Screen").font(.system(size: 13))
+                Text(l10n.settingsScreen).font(.system(size: 13))
                 Spacer(minLength: 12)
-                if screens.count > 1 {
-                    Picker("Screen", selection: Binding(
-                        get: { controller.currentScreen?.displayID ?? 0 },
+                if displays.count > 1 {
+                    Picker(l10n.settingsScreen, selection: Binding(
+                        get: { controller.currentDisplay?.id ?? 0 },
                         set: { controller.selectDisplay($0) }
                     )) {
-                        ForEach(screens, id: \.self) { screen in
-                            Text(label(for: screen)).tag(screen.displayID ?? 0)
+                        ForEach(displays) { display in
+                            Text(label(for: display)).tag(display.id)
                         }
                     }
                     .pickerStyle(.menu)
@@ -64,7 +77,7 @@ struct SettingsView: View {
                     .controlSize(.regular)
                     .frame(maxWidth: 220, alignment: .trailing)
                 } else {
-                    Text(label(for: screens.first))
+                    Text(label(for: displays.first))
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -73,51 +86,72 @@ struct SettingsView: View {
             .padding(.top, 12)
 
             HStack {
-                Text("Panel Position").font(.system(size: 13))
+                Text(l10n.settingsPanelPosition).font(.system(size: 13))
                 Spacer()
-                Button("Center") { controller.resetOffset() }
+                Button(l10n.settingsCenter) { controller.resetOffset() }
                     .font(.system(size: 14))
                     .controlSize(.regular)
             }
             .padding(.top, 12)
 
-            switchRow("Show Menu Bar Icon", isOn: Binding(
+            switchRow(l10n.settingsShowMenuBarIcon, isOn: Binding(
                 get: { controller.showsMenuBarIcon },
                 set: { controller.setMenuBarIconVisible($0) }
             ))
             .padding(.top, 12)
 
+            HStack {
+                Text(l10n.settingsLanguage).font(.system(size: 13))
+                Spacer(minLength: 12)
+                Picker(l10n.settingsLanguage, selection: Binding(
+                    get: { language.selection },
+                    set: { store.setLanguage($0) }
+                )) {
+                    ForEach(AppLanguage.allCases, id: \.self) { option in
+                        Text(l10n.languageOptionLabel(option)).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .font(.system(size: 14))
+                .controlSize(.regular)
+                .frame(maxWidth: 220, alignment: .trailing)
+            }
+            .padding(.top, 12)
+
             Divider().padding(.vertical, 18)
-            title("Startup")
-            switchRow("Launch at Login", isOn: Binding(
+            title(l10n.settingsStartup)
+            switchRow(l10n.settingsLaunchAtLogin, isOn: Binding(
                 get: { loginItems.isEnabled },
                 set: { enabled in Task { await loginItems.setEnabled(enabled) } }
             ))
             .disabled(loginItems.isDemo || loginItems.isUpdating)
             .padding(.top, 8)
-            subtitle(loginItems.isDemo ? "Unavailable in Demo." : "Start Glitter when you log in.")
+            subtitle(loginItems.isDemo ? l10n.settingsStartupDemoHint : l10n.settingsStartupHint)
             if loginItems.needsApproval {
-                subtitle("Allow Glitter in System Settings to finish enabling.")
-                Button("Open Login Items Settings") { loginItems.openSettings() }
+                subtitle(l10n.settingsApprovalHint)
+                Button(l10n.settingsOpenLoginItems) { loginItems.openSettings() }
                     .padding(.top, 6)
             }
-            if let error = loginItems.errorMessage {
+            if let error = loginItems.localizedErrorMessage(with: l10n) {
                 Text(error).font(.system(size: 11)).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 6)
             }
 
+            #if DEBUG || DEMO
             if store.isDemo {
                 Divider().padding(.vertical, 16)
-                title("Animation Demo")
+                title(l10n.settingsAnimationDemo)
                 subtitle("Smooth Slide · 160 ms")
                 HStack {
-                    Button("Replay Pages") { controller.previewPageTransition() }
-                    Button("Replay Notch") { controller.previewNotchTransition() }
+                    Button(l10n.settingsReplayPages) { controller.previewPageTransition() }
+                    Button(l10n.settingsReplayNotch) { controller.previewNotchTransition() }
                 }
                 .padding(.top, 10)
                 subtitle("Expand 0.36 / 0.76 · Collapse 0.26 / 0.96")
             }
+            #endif
 
             Spacer(minLength: 0)
 
@@ -131,10 +165,9 @@ struct SettingsView: View {
         }
     }
 
-    private func label(for screen: NSScreen?) -> String {
-        guard let screen else { return "Main Display" }
-        let suffix = screen.safeAreaInsets.top > 0 ? " (Notch)" : ""
-        return screen.displayName + suffix
+    private func label(for display: DisplayMetrics?) -> String {
+        guard let display else { return l10n.mainDisplay }
+        return display.displayLabel(strings: l10n)
     }
 
     private func listRow(_ cal: EKCalendar) -> some View {
@@ -161,7 +194,7 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint("Hold Command to add or remove this list from your selection.")
+        .accessibilityHint(l10n.settingsListAccessibilityHint)
     }
 
     private func title(_ text: String) -> some View {
@@ -198,6 +231,8 @@ struct SettingsView: View {
 final class SettingsWindowController: NSObject, NSToolbarDelegate {
     private let titleItemIdentifier = NSToolbarItem.Identifier("GlitterSettingsTitle")
     private var window: NSWindow?
+    private var titleLabel: NSTextField?
+    private var titleItem: NSToolbarItem?
     private let store: TaskStore
     private let controller: NotchPanelController
     private let loginItems: LoginItemManager
@@ -212,6 +247,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
     func show() {
         loginItems.refresh()
         if let window {
+            updateLocalizedTitles()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -232,7 +268,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Glitter Settings"
+        window.title = store.l10n.settingsWindowTitle
         window.titleVisibility = .hidden
         window.toolbarStyle = .unifiedCompact
         let toolbar = NSToolbar(identifier: "GlitterSettingsToolbar")
@@ -249,6 +285,13 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    func updateLocalizedTitles() {
+        let title = store.l10n.settingsWindowTitle
+        window?.title = title
+        titleLabel?.stringValue = title
+        titleItem?.label = title
+    }
+
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.flexibleSpace, titleItemIdentifier, .flexibleSpace]
     }
@@ -260,18 +303,21 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         guard itemIdentifier == titleItemIdentifier else { return nil }
-        let label = NSTextField(labelWithString: "Glitter Settings")
+        let title = store.l10n.settingsWindowTitle
+        let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 13, weight: .semibold)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.widthAnchor.constraint(equalToConstant: 150),
+            label.widthAnchor.constraint(equalToConstant: 180),
             label.heightAnchor.constraint(equalToConstant: 22)
         ])
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.label = "Glitter Settings"
+        item.label = title
         item.isBordered = false
         item.view = label
+        titleLabel = label
+        titleItem = item
         return item
     }
 }

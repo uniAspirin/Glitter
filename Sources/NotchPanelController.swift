@@ -6,7 +6,7 @@ final class NotchPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-private final class PanelSurfaceView: NSView {
+final class PanelSurfaceView: NSView {
     var onPointerChanged: (() -> Void)?
     var blocksContentInput = false
     weak var interactiveHeader: NSView?
@@ -79,22 +79,26 @@ final class NotchPanelController: ObservableObject {
 
     private(set) var panel: NotchPanel
     let state: PanelState
-    private let store: TaskStore
+    let store: TaskStore
 
     var onDataChanged: (() -> Void)?
 
     @Published private(set) var selectedDisplayID: CGDirectDisplayID?
-    @Published private(set) var screens: [NSScreen]
+    @Published private(set) var displays: [DisplayMetrics]
     @Published private(set) var showsMenuBarIcon: Bool
-    private var demoPreviewWork: DispatchWorkItem?
+    private let mainDisplayID: () -> CGDirectDisplayID?
 
-    private var hoverTimer: Timer?
+    #if DEBUG || DEMO
+    var demoPreviewWork: DispatchWorkItem?
+    #endif
+
+    var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
-    private var collapseWork: DispatchWorkItem?
+    var collapseWork: DispatchWorkItem?
     // 依次表示 (中心 X, 顶边)、(宽, 高)、(展开进度, 月视图进度)。
-    private typealias MotionPair = AnimatablePair<Double, Double>
-    private typealias MotionVector = AnimatablePair<MotionPair, AnimatablePair<MotionPair, MotionPair>>
-    private struct Motion {
+    typealias MotionPair = AnimatablePair<Double, Double>
+    typealias MotionVector = AnimatablePair<MotionPair, AnimatablePair<MotionPair, MotionPair>>
+    struct Motion {
         let start: MotionVector
         let target: MotionVector
         let velocity: MotionVector
@@ -107,53 +111,57 @@ final class NotchPanelController: ObservableObject {
     private static let pageDuration: TimeInterval = 0.16
     private static let collapseDelay: TimeInterval = 0.30
     private let displayLinkTarget = AnimationDisplayLinkTarget()
-    private var animationDisplayLink: CADisplayLink?
-    private var motion: Motion?
+    var animationDisplayLink: CADisplayLink?
+    var motion: Motion?
     private var animationElapsed: TimeInterval = 0
-    private var presentedVector: MotionVector?
-    private let surfaceView = PanelSurfaceView()
-    private let renderCache = PanelRenderCache()
-    private var snapshotLayer: PanelSnapshotLayer!
-    private var headerHosting: NSHostingView<PanelHeaderView>!
+    var presentedVector: MotionVector?
+    let surfaceView = PanelSurfaceView()
+    let renderCache = PanelRenderCache()
+    var snapshotLayer: PanelSnapshotLayer!
+    var headerHosting: NSHostingView<PanelHeaderView>!
     private var snapshotWork: DispatchWorkItem?
     private var pendingDataChange = false
     private var pointerGlobalMonitor: Any?
     private var dragMonitor: Any?
-    private var headerPressOrigin: NSPoint?
+    var headerPressOrigin: NSPoint?
     private var previousHeaderButton: HeaderButton?
     private var previousHeaderPoint: NSPoint?
     private var headerFeedbackTask: Task<Void, Never>?
     private let defaults: UserDefaults
 
-    private var isDragging = false
-    private var lastDragEndedAt = Date.distantPast
+    var isDragging = false
+    var lastDragEndedAt = Date.distantPast
     private var dragStartMouseX: CGFloat = 0
     private var dragStartOffset: CGFloat = 0
 
-    init(store: TaskStore, defaults: UserDefaults = .standard) {
+    init(store: TaskStore, defaults: UserDefaults = .standard,
+         displays: [DisplayMetrics]? = nil,
+         mainDisplayID: @escaping () -> CGDirectDisplayID? = { NSScreen.main?.displayID }) {
         self.store = store
         self.defaults = defaults
+        self.mainDisplayID = mainDisplayID
         showsMenuBarIcon = defaults.object(forKey: Keys.menuBarIcon) as? Bool ?? true
-        let availableScreens = NSScreen.screens
-        screens = availableScreens
+        let availableDisplays = displays ?? NSScreen.screens.compactMap(DisplayMetrics.init(screen:))
+        self.displays = availableDisplays
         let savedDisplayID = defaults.object(forKey: Keys.display) == nil
             ? nil : CGDirectDisplayID(defaults.integer(forKey: Keys.display))
         selectedDisplayID = savedDisplayID
         let savedOffset = CGFloat(defaults.double(forKey: Keys.offset))
 
-        let screen = Self.screen(for: savedDisplayID, screens: availableScreens)
+        let display = Self.display(for: savedDisplayID, displays: availableDisplays, mainDisplayID: mainDisplayID())
         let stat = store.todayStat
-        var geometry = NotchGeometry.make(for: screen, rows: store.expandedRows, offset: savedOffset,
-                                           scoreText: "\(stat.done)/\(stat.due)",
-                                           showingMonth: store.expandedMode == "month",
-                                           referenceNotchWidth: NotchGeometry.referenceNotchWidth(in: availableScreens))
-        if screen == nil {
+        var geometry = NotchGeometry.make(for: display, rows: store.expandedRows, offset: savedOffset,
+                                          scoreText: "\(stat.done)/\(stat.due)",
+                                          showingMonth: store.expandedMode == "month",
+                                          referenceNotchWidth: NotchGeometry.referenceNotchWidth(in: availableDisplays))
+        if display == nil {
             geometry.horizontalOffset = savedOffset
         }
         geometry.showsCalendar = store.hasStatistics
         geometry.noticeHeight = store.panelNotice.map { $0.height(width: geometry.contentWidth, compact: true) + geometry.padding } ?? 0
         if store.hasStatistics && !store.todayTasks.isEmpty {
-            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary)
+            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary,
+                                  untitledFallback: store.l10n.untitledReminder)
         } else {
             geometry.measureMessage(store.panelMessage)
         }
@@ -207,9 +215,11 @@ final class NotchPanelController: ObservableObject {
             guard let self, self.animationDisplayLink === link else { return }
             self.advanceAnimation(at: link.targetTimestamp)
         }
+        #if DEBUG || DEMO
         if store.isDemo {
             state.onTogglePinned = { [weak self] in self?.togglePinned() }
         }
+        #endif
         state.onSelectDay = { [weak self] in self?.selectMode("today") }
         state.onSelectMonth = { [weak self] in self?.selectMode("month") }
         dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
@@ -224,9 +234,7 @@ final class NotchPanelController: ObservableObject {
         }
 
         store.onUpdate = { [weak self] in self?.dataChanged() }
-        startHoverWatch()
         observeScreens()
-
     }
 
     deinit {
@@ -234,14 +242,16 @@ final class NotchPanelController: ObservableObject {
         hoverTimer?.invalidate()
         collapseWork?.cancel()
         snapshotWork?.cancel()
+        #if DEBUG || DEMO
         demoPreviewWork?.cancel()
+        #endif
         if let pointerGlobalMonitor { NSEvent.removeMonitor(pointerGlobalMonitor) }
         if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
         if let observer = screenObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
     func show() {
-        guard currentScreen != nil else { return }
+        guard currentDisplay != nil else { return }
         panel.orderFrontRegardless()
     }
 
@@ -252,6 +262,7 @@ final class NotchPanelController: ObservableObject {
         cancelScheduledCollapse()
         store.setExpandedMode("today")
         state.expanded = true
+        updateHoverWatch()
         updateWindowFrame(expanded: true, animated: true)
         show()
     }
@@ -263,10 +274,11 @@ final class NotchPanelController: ObservableObject {
         state.headerHovered = false
         state.blockHovered = false
         state.hoveredTaskID = nil
+        updateHoverWatch()
         updateWindowFrame(expanded: false, animated: true)
     }
 
-    private func updateWindowFrame(expanded: Bool, animated: Bool = false) {
+    func updateWindowFrame(expanded: Bool, animated: Bool = false) {
         let target = Self.vector(rect: state.geometry.rect(expanded: expanded),
                                  expansion: expanded ? 1 : 0, month: store.expandedMode == "month" ? 1 : 0)
         if animated, animationDisplayLink != nil, motion?.target == target { return }
@@ -279,7 +291,7 @@ final class NotchPanelController: ObservableObject {
             && start.second.second.first > 0.999 && start.second.second.second < 0.001
             ? snapshotLayer.captureLive(headerHeight: state.geometry.collapsedHeight) : nil
         stopAnimation(flushUpdates: false)
-        guard animated, currentScreen != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+        guard animated, let display = currentDisplay, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               start != target else {
             present(vector: target)
             finishPresentation()
@@ -348,7 +360,7 @@ final class NotchPanelController: ObservableObject {
         }
         // 窗口的 displayLink 会自动跟随显示器变化，回调只在动画期间启用。
         let link = animationDisplayLink ?? panel.displayLink(target: displayLinkTarget, selector: #selector(AnimationDisplayLinkTarget.tick(_:)))
-        let screenRate = currentScreen?.maximumFramesPerSecond ?? 60
+        let screenRate = display.maximumFramesPerSecond
         let maximum = Float(screenRate > 0 ? screenRate : 60)
         link.preferredFrameRateRange = CAFrameRateRange(minimum: maximum, maximum: maximum, preferred: maximum)
         if animationDisplayLink == nil {
@@ -358,7 +370,7 @@ final class NotchPanelController: ObservableObject {
         link.isPaused = false
     }
 
-    private func advanceAnimation(at timestamp: CFTimeInterval) {
+    func advanceAnimation(at timestamp: CFTimeInterval) {
         guard let motion else { return }
         let elapsed = max(0, timestamp - motion.started)
         animationElapsed = elapsed
@@ -434,7 +446,7 @@ final class NotchPanelController: ObservableObject {
                                            pair(velocity.second.second, displacement.second.second)))
     }
 
-    private func stopAnimation(flushUpdates: Bool = true) {
+    func stopAnimation(flushUpdates: Bool = true) {
         animationDisplayLink?.isPaused = true
         motion = nil
         animationElapsed = 0
@@ -448,6 +460,7 @@ final class NotchPanelController: ObservableObject {
         surfaceView.visibleContentRect = nil
         if let pointerGlobalMonitor { NSEvent.removeMonitor(pointerGlobalMonitor); self.pointerGlobalMonitor = nil }
         panel.ignoresMouseEvents = false
+        updateHoverWatch()
         store.setPresentationDeferred(false)
         if pendingDataChange {
             pendingDataChange = false
@@ -485,7 +498,7 @@ final class NotchPanelController: ObservableObject {
                                     MotionPair(Double(expansion), Double(month))))
     }
 
-    private func presentationRect(_ vector: MotionVector) -> NSRect {
+    func presentationRect(_ vector: MotionVector) -> NSRect {
         let position = vector.first
         let size = vector.second.first
         let width = max(1, size.first)
@@ -493,7 +506,7 @@ final class NotchPanelController: ObservableObject {
         return NSRect(x: position.first - width / 2, y: position.second - height, width: width, height: height)
     }
 
-    private var interactionFrame: NSRect {
+    var interactionFrame: NSRect {
         if motion != nil, let presentedVector { return presentationRect(presentedVector) }
         return panel.frame
     }
@@ -536,9 +549,11 @@ final class NotchPanelController: ObservableObject {
         if headerHosting.frame != rect { headerHosting.frame = rect }
     }
 
+    #if DEBUG || DEMO
     func togglePinned() {
         guard store.isDemo else { return }
         state.pinned.toggle()
+        updateHoverWatch()
         if state.pinned {
             expand()
         } else {
@@ -546,6 +561,7 @@ final class NotchPanelController: ObservableObject {
         }
         onDataChanged?()
     }
+    #endif
 
     func setMenuBarIconVisible(_ visible: Bool) {
         guard visible != showsMenuBarIcon else { return }
@@ -554,9 +570,11 @@ final class NotchPanelController: ObservableObject {
         onDataChanged?()
     }
 
+    #if DEBUG || DEMO
     func forceExpandedForDebug() {
         guard store.isDemo else { return }
         state.pinned = true
+        updateHoverWatch()
         expand()
     }
 
@@ -566,6 +584,7 @@ final class NotchPanelController: ObservableObject {
         guard store.isDemo else { return }
         demoPreviewWork?.cancel()
         state.pinned = true
+        updateHoverWatch()
         if !state.expanded {
             expand()
             let work = DispatchWorkItem { [weak self] in
@@ -590,18 +609,22 @@ final class NotchPanelController: ObservableObject {
             guard let self else { return }
             self.demoPreviewWork = nil
             self.state.pinned = true
+            self.updateHoverWatch()
             self.expand()
         }
         demoPreviewWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
+    #endif
 
     // MARK: - 显示器
 
-    var currentScreen: NSScreen? { Self.screen(for: selectedDisplayID, screens: screens) }
+    var currentDisplay: DisplayMetrics? {
+        Self.display(for: selectedDisplayID, displays: displays, mainDisplayID: mainDisplayID())
+    }
 
     func selectDisplay(_ id: CGDirectDisplayID) {
-        guard screens.contains(where: { $0.displayID == id }) else { return }
+        guard displays.contains(where: { $0.id == id }) else { return }
         dragEnded()
         cancelScheduledCollapse()
         selectedDisplayID = id
@@ -620,7 +643,7 @@ final class NotchPanelController: ObservableObject {
 
     // MARK: - 点击 / 拖动
 
-    private var acceptsClick: Bool {
+    var acceptsClick: Bool {
         !isDragging && Date().timeIntervalSince(lastDragEndedAt) > 0.15
     }
 
@@ -636,7 +659,7 @@ final class NotchPanelController: ObservableObject {
         store.setExpandedMode(mode)
     }
 
-    private func trackHeaderPointer(type: NSEvent.EventType, point: NSPoint, inPanel: Bool) {
+    func trackHeaderPointer(type: NSEvent.EventType, point: NSPoint, inPanel: Bool) {
         switch type {
         case .leftMouseDown:
             headerPressOrigin = nil
@@ -688,14 +711,19 @@ final class NotchPanelController: ObservableObject {
 
     // MARK: - 悬停
 
-    private func startHoverWatch() {
-        guard hoverTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollCursor() }
+    private func updateHoverWatch() {
+        if state.expanded && !state.pinned {
+            guard hoverTimer == nil else { return }
+            let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.pollCursor() }
+            }
+            timer.tolerance = 0.05
+            RunLoop.main.add(timer, forMode: .common)
+            hoverTimer = timer
+        } else {
+            hoverTimer?.invalidate()
+            hoverTimer = nil
         }
-        timer.tolerance = 0.1
-        RunLoop.main.add(timer, forMode: .common)
-        hoverTimer = timer
     }
 
     private func headerButton(at point: NSPoint) -> HeaderButton? {
@@ -706,7 +734,7 @@ final class NotchPanelController: ObservableObject {
         return nil
     }
 
-    private func resetHeaderHover(at point: NSPoint = NSEvent.mouseLocation) {
+    func resetHeaderHover(at point: NSPoint = NSEvent.mouseLocation) {
         if state.headerHovered { state.headerHovered = false }
         if state.blockHovered { state.blockHovered = false }
         previousHeaderPoint = point
@@ -728,7 +756,7 @@ final class NotchPanelController: ObservableObject {
         previousHeaderButton = button
     }
 
-    private func pollCursor(at point: NSPoint = NSEvent.mouseLocation) {
+    func pollCursor(at point: NSPoint = NSEvent.mouseLocation) {
         guard !isDragging else {
             state.headerHovered = false
             state.blockHovered = false
@@ -747,7 +775,8 @@ final class NotchPanelController: ObservableObject {
             return
         }
         let taskHovered = state.expanded && store.canCompleteTasks && !store.isMutating
-            ? g.taskInteractionRects(tasks: store.presentationTasks, in: visibleFrame).first(where: { $0.rect.contains(point) })?.id : nil
+            ? g.taskInteractionRects(tasks: store.presentationTasks, in: visibleFrame,
+                                     untitledFallback: store.l10n.untitledReminder).first(where: { $0.rect.contains(point) })?.id : nil
         if state.hoveredTaskID != taskHovered { state.hoveredTaskID = taskHovered }
 
         if state.expanded {
@@ -773,7 +802,7 @@ final class NotchPanelController: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.collapseDelay, execute: work)
     }
 
-    private func cancelScheduledCollapse() {
+    func cancelScheduledCollapse() {
         collapseWork?.cancel()
         collapseWork = nil
     }
@@ -786,13 +815,15 @@ final class NotchPanelController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.screensChanged() }
+            Task { @MainActor in
+                self?.screensChanged(NSScreen.screens.compactMap(DisplayMetrics.init(screen:)))
+            }
         }
     }
 
-    private func screensChanged(_ availableScreens: [NSScreen] = NSScreen.screens) {
+    func screensChanged(_ availableDisplays: [DisplayMetrics]) {
         dragEnded()
-        screens = availableScreens
+        displays = availableDisplays
         refreshGeometry()
         onDataChanged?()
     }
@@ -822,23 +853,26 @@ final class NotchPanelController: ObservableObject {
         onDataChanged?()
     }
 
-    private func refreshGeometry(animated: Bool = false) {
+    func refreshGeometry(animated: Bool = false) {
         let rows = store.expandedRows
-        guard let screen = currentScreen else {
+        guard let display = currentDisplay else {
             stopAnimation()
+            hoverTimer?.invalidate()
+            hoverTimer = nil
             panel.orderOut(nil)
             return
         }
         let offset = state.geometry.horizontalOffset
         let stat = store.todayStat
-        var geometry = NotchGeometry.make(for: screen, rows: rows, offset: offset,
+        var geometry = NotchGeometry.make(for: display, rows: rows, offset: offset,
                                           scoreText: "\(stat.done)/\(stat.due)",
-                                           showingMonth: store.expandedMode == "month",
-                                           referenceNotchWidth: NotchGeometry.referenceNotchWidth(in: screens) ?? state.geometry.notchWidth)
+                                          showingMonth: store.expandedMode == "month",
+                                          referenceNotchWidth: NotchGeometry.referenceNotchWidth(in: displays) ?? state.geometry.notchWidth)
         geometry.showsCalendar = store.hasStatistics
         geometry.noticeHeight = store.panelNotice.map { $0.height(width: geometry.contentWidth, compact: true) + geometry.padding } ?? 0
         if store.hasStatistics && !store.todayTasks.isEmpty {
-            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary)
+            geometry.measureToday(tasks: store.presentationTasks, error: nil, summary: store.presentationSummary,
+                                  untitledFallback: store.l10n.untitledReminder)
         } else {
             geometry.measureMessage(store.panelMessage)
         }
@@ -851,15 +885,15 @@ final class NotchPanelController: ObservableObject {
         if !panel.isVisible { show() }
     }
 
-    private static func screen(for id: CGDirectDisplayID?, screens: [NSScreen]) -> NSScreen? {
-        if let id, let match = screens.first(where: { $0.displayID == id }) {
+    private static func display(for id: CGDirectDisplayID?, displays: [DisplayMetrics],
+                                mainDisplayID: CGDirectDisplayID?) -> DisplayMetrics? {
+        if let id, let match = displays.first(where: { $0.id == id }) {
             return match
         }
-        if let notched = screens.first(where: { $0.safeAreaInsets.top > 0 }) {
+        if let notched = displays.first(where: \.hasNotch) {
             return notched
         }
-        let mainID = NSScreen.main?.displayID
-        return screens.first(where: { $0.displayID == mainID }) ?? screens.first
+        return displays.first(where: { $0.id == mainDisplayID }) ?? displays.first
     }
 
     // MARK: - 调试
@@ -876,7 +910,7 @@ final class NotchPanelController: ObservableObject {
     }
 
     private func warp(_ point: NSPoint) {
-        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let mainHeight = displays.first?.frame.height ?? NSScreen.screens.first?.frame.height ?? 0
         CGWarpMouseCursorPosition(CGPoint(x: point.x, y: mainHeight - point.y))
     }
 }

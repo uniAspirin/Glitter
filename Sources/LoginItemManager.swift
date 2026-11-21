@@ -22,6 +22,7 @@ private final class NativeLoginItemService: LoginItemService {
 final class LoginItemManager: ObservableObject {
     @Published private(set) var status: SMAppService.Status = .notRegistered
     @Published private(set) var isUpdating = false
+    @Published private(set) var errorDetail: String?
     @Published private(set) var errorMessage: String?
     let isDemo: Bool
     private let service: LoginItemService?
@@ -35,6 +36,10 @@ final class LoginItemManager: ObservableObject {
     var isEnabled: Bool { status == .enabled || status == .requiresApproval }
     var needsApproval: Bool { status == .requiresApproval }
 
+    func localizedErrorMessage(with l10n: L10n) -> String? {
+        errorDetail.map(l10n.loginItemError)
+    }
+
     func refresh() {
         status = service?.status ?? .notRegistered
     }
@@ -42,6 +47,7 @@ final class LoginItemManager: ObservableObject {
     func setEnabled(_ enabled: Bool) async {
         guard let service, !isUpdating else { return }
         refresh()
+        errorDetail = nil
         errorMessage = nil
         guard enabled != isEnabled else { return }
         isUpdating = true
@@ -53,7 +59,9 @@ final class LoginItemManager: ObservableObject {
             refresh()
             // Pending approval has a dedicated explanation and a Settings shortcut.
             if !enabled || !needsApproval {
-                errorMessage = "Could not update Launch at Login. \(error.localizedDescription)"
+                let detail = error.localizedDescription
+                errorDetail = detail
+                errorMessage = L10n(language: AppLanguage.system.resolved()).loginItemError(detail)
             }
         }
     }

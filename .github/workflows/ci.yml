@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Xcode project
+        run: plutil -lint Glitter.xcodeproj/project.pbxproj
+
+      - name: Build production app
+        run: |
+          ./build.sh
+          VERSION=$(sed -n 's/^MARKETING_VERSION *= *//p' Config/Version.xcconfig | tr -d '[:space:]')
+          BUILD=$(sed -n 's/^CURRENT_PROJECT_VERSION *= *//p' Config/Version.xcconfig | tr -d '[:space:]')
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/Glitter.app/Contents/Info.plist)
+          APP_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Glitter.app/Contents/Info.plist)
+          test "$APP_VERSION" = "$VERSION"
+          test "$APP_BUILD" = "$BUILD"
+          ! nm -gU build/Glitter.app/Contents/MacOS/Glitter | grep -q loadSaveFailureDemoData
+
+      - name: Build demo app
+        run: ./build.sh --demo
+
+      - name: Run XCTest suite
+        run: ./Tests/run.sh

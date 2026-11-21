@@ -79,7 +79,8 @@ struct NotchPanelView: View {
         VStack(spacing: 0) {
             if let notice = store.panelNotice {
                 PanelMessageView(message: notice, width: g.expandedWidth, padding: g.horizontalPadding,
-                                 compact: true, busy: store.isRefreshing || store.isMutating, action: perform)
+                                 compact: true, busy: store.isRefreshing || store.isMutating,
+                                 l10n: store.l10n, action: perform)
                     .frame(height: g.noticeHeight - g.padding, alignment: .top)
                     .padding(.bottom, g.padding)
             }
@@ -99,7 +100,7 @@ struct NotchPanelView: View {
 
     private var message: some View {
         PanelMessageView(message: store.panelMessage, width: g.expandedWidth, padding: g.horizontalPadding,
-                         busy: store.isRefreshing, demo: store.isDemo, action: perform)
+                         busy: store.isRefreshing, demo: store.isDemo, l10n: store.l10n, action: perform)
     }
 
     private var pages: some View {
@@ -181,6 +182,7 @@ struct PanelHeaderView: View {
     @ObservedObject var store: TaskStore
     @ObservedObject var state: PanelState
     private var g: NotchGeometry { state.geometry }
+    private var l10n: L10n { store.l10n }
 
     var body: some View {
         GeometryReader { proxy in
@@ -207,8 +209,8 @@ struct PanelHeaderView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Show Day")
-                .accessibilityLabel("Show Day, today \(store.todayStat.done) of \(store.todayStat.due) completed")
+                .help(l10n.showDayHelp)
+                .accessibilityLabel(l10n.showDayAccessibility(done: store.todayStat.done, due: store.todayStat.due))
                 Spacer(minLength: 0)
                 Button(action: { state.onSelectMonth?() }) {
                     statusBlock
@@ -222,8 +224,8 @@ struct PanelHeaderView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Show Month")
-                .accessibilityLabel("Show Month")
+                .help(l10n.showMonthHelp)
+                .accessibilityLabel(l10n.showMonthHelp)
             } else {
                 headerScore
                 Spacer(minLength: 0)
@@ -240,7 +242,7 @@ struct PanelHeaderView: View {
         } else {
             Image(systemName: store.panelStatus.symbol)
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.secondary)
-                .help(store.panelStatus.title)
+                .help(store.panelStatus.title(with: l10n))
         }
     }
 
@@ -250,7 +252,7 @@ struct PanelHeaderView: View {
             .frame(width: g.collapsedScoreWidth, height: 24, alignment: .leading)
             .clipped()
             .help(store.lastError == nil ? "\(store.todayStat.done)/\(store.todayStat.due)"
-                  : "Last update: \(store.todayStat.done)/\(store.todayStat.due). Refresh to continue.")
+                  : l10n.staleScoreHelp(done: store.todayStat.done, due: store.todayStat.due))
     }
 
     private var statusBlock: some View {
@@ -263,29 +265,33 @@ struct PanelHeaderView: View {
 private struct PanelMenu: View {
     @ObservedObject var store: TaskStore
     @ObservedObject var state: PanelState
+    private var l10n: L10n { store.l10n }
+
     var body: some View {
         Group {
-            Button("Settings") { state.onOpenSettings?() }
+            Button(l10n.menuSettings) { state.onOpenSettings?() }
+            #if DEBUG || DEMO
             if store.isDemo {
-                Toggle("Keep Expand", isOn: Binding(
+                Toggle(l10n.menuKeepExpand, isOn: Binding(
                     get: { state.pinned },
                     set: { pinned in
                         if pinned != state.pinned { state.onTogglePinned?() }
                     }
                 ))
             }
+            #endif
             if store.selectedCalendars.count > 1 {
-                Menu("Open Tracked List") {
+                Menu(l10n.menuOpenTrackedList) {
                     ForEach(store.selectedCalendars, id: \.calendarIdentifier) { list in
                         Button(list.title) { store.openTrackedList(list.calendarIdentifier) }
                     }
                 }
                 .disabled(store.isDemo)
             } else {
-                Button("Open Tracked List") { store.openTrackedList() }
+                Button(l10n.menuOpenTrackedList) { store.openTrackedList() }
                     .disabled(store.isDemo || !store.canOpenTrackedList)
             }
-            Button("Quit Glitter") { NSApp.terminate(nil) }
+            Button(l10n.menuQuit) { NSApp.terminate(nil) }
 
         }
     }
@@ -299,12 +305,19 @@ struct TodayContent: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let l10n = store.l10n
         VStack(alignment: .leading, spacing: 0) {
             ForEach(store.presentationTasks.map { PresentedRow(id: store.rowAnimationID(for: $0), task: $0) }) { row in
                 let task = row.task
-                let taskRow = TaskRow(task: task, rowHeight: geometry.taskHeight(task), horizontalPadding: geometry.horizontalPadding,
-                              locked: store.isMutating || !store.canCompleteTasks,
-                              saving: store.savingTaskID == task.id, sampledHover: hoveredTaskID == task.id) {
+                let taskRow = TaskRow(
+                    task: task,
+                    rowHeight: geometry.taskHeight(task, untitledFallback: l10n.untitledReminder),
+                    horizontalPadding: geometry.horizontalPadding,
+                    locked: store.isMutating || !store.canCompleteTasks,
+                    saving: store.savingTaskID == task.id,
+                    sampledHover: hoveredTaskID == task.id,
+                    l10n: l10n
+                ) {
                     Task { await store.completeTask(task.id) }
                 }
                 taskRow.matchedGeometryEffect(id: row.id, in: taskMovement)
@@ -342,6 +355,7 @@ private struct TaskRow: View {
     let locked: Bool
     let saving: Bool
     let sampledHover: Bool
+    let l10n: L10n
     let onComplete: () -> Void
     @ViewState private var hovered = false
     @ViewState private var showsSpinner = false
@@ -358,13 +372,13 @@ private struct TaskRow: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: saving)
         .accessibilityRepresentation {
             if task.isCompleted {
-                Text(verbatim: "\(task.title), Completed")
+                Text(verbatim: l10n.taskCompletedAccessibility(task.title))
             } else {
                 Button(action: onComplete) {
-                    Text(verbatim: "\(task.title), \(saving ? "Saving" : "To do")")
+                    Text(verbatim: l10n.taskPendingAccessibility(task.title, saving: saving))
                 }
                 .disabled(locked)
-                .accessibilityHint(locked ? "Temporarily unavailable" : "Mark as complete")
+                .accessibilityHint(l10n.taskActionHint(locked: locked))
             }
         }
         .task(id: saving) {
@@ -390,7 +404,7 @@ private struct TaskRow: View {
                 }
             }
             .frame(width: NotchGeometry.taskMarkerWidth, height: 16, alignment: .leading)
-            Text(task.title.isEmpty ? "Untitled reminder" : task.title)
+            Text(task.title.isEmpty ? l10n.untitledReminder : task.title)
                 .font(.system(size: NotchGeometry.taskFontSize))
                 .foregroundStyle(task.isCompleted ? Theme.secondary : Theme.primary)
                 .strikethrough(task.isCompleted, color: Theme.tertiary)
@@ -416,20 +430,20 @@ struct MonthContent: View {
     let geometry: NotchGeometry
 
     var body: some View {
+        let l10n = store.l10n
+        let yearNumber = store.calendar.component(.year, from: store.today)
         VStack(spacing: 0) {
-            let month = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
-            let year = Text(String(store.calendar.component(.year, from: store.today)))
-                .font(.system(size: 18, weight: .regular))
-            Text("\(month) \(year)")
-            .foregroundStyle(Color.white.opacity(0.84))
-            .help("\(store.monthFullDays) \(store.monthFullDays == 1 ? "Golden Day" : "Golden Days") this month")
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: "\(store.monthTitle) \(store.calendar.component(.year, from: store.today)), \(store.monthFullDays) \(store.monthFullDays == 1 ? "Golden Day" : "Golden Days")"))
-            .font(.system(size: 13, weight: .medium)).lineLimit(1)
-            .frame(width: geometry.gridWidth, height: geometry.monthHeadingHeight, alignment: .leading)
+            monthHeading(year: yearNumber, l10n: l10n)
+                .foregroundStyle(Color.white.opacity(0.84))
+                .help(l10n.goldenDaysHelp(store.monthFullDays))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: l10n.monthYearAccessibleLabel(
+                    monthTitle: store.monthTitle, year: yearNumber, goldenDays: store.monthFullDays)))
+                .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                .frame(width: geometry.gridWidth, height: geometry.monthHeadingHeight, alignment: .leading)
             Color.clear.frame(height: geometry.monthHeadingGap)
             HStack(spacing: geometry.cellGap) {
-                ForEach(Array(["M", "T", "W", "T", "F", "S", "S"].enumerated()), id: \.offset) { _, day in
+                ForEach(Array(l10n.weekdaySymbols.enumerated()), id: \.offset) { _, day in
                     Text(day).font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Theme.secondary)
                         .frame(width: geometry.cell)
@@ -460,6 +474,17 @@ struct MonthContent: View {
         }
         .frame(width: geometry.gridWidth, height: geometry.monthContentHeight, alignment: .top)
     }
+
+    private func monthHeading(year: Int, l10n: L10n) -> Text {
+        if l10n.language == .chinese {
+            let yearText = Text(verbatim: "\(year)年").font(.system(size: 18, weight: .regular))
+            let monthText = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
+            return Text("\(yearText) \(monthText)")
+        }
+        let monthText = Text(store.monthTitle).font(.system(size: 18, weight: .heavy))
+        let yearText = Text(verbatim: String(year)).font(.system(size: 18, weight: .regular))
+        return Text("\(monthText) \(yearText)")
+    }
 }
 
 /// Every non-ready state gets an explanation and one clear recovery action.
@@ -470,6 +495,7 @@ struct PanelMessageView: View {
     var compact = false
     var busy = false
     var demo = false
+    var l10n = L10n(language: .english)
     let action: (PanelAction) -> Void
 
     var body: some View {
@@ -487,7 +513,7 @@ struct PanelMessageView: View {
                 .padding(.top, 5)
             if let target = message.action, let title = message.actionTitle {
                 FeedbackButton(title: title, busy: busy || (demo && target == .openList)) { action(target) }
-                    .help(demo && target == .openList ? "Demo does not open real reminders." : title)
+                    .help(demo && target == .openList ? l10n.demoOpenListDisabledHelp : title)
                     .padding(.top, 8)
             }
         }
